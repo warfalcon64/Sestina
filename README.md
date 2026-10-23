@@ -45,4 +45,9 @@ These are what a session is actually following. The files are just where the rul
    compaction, not a transcript: written as things happen, kept to what the code and docs cannot show, and in the
    repo where the owner can read it. Hooks (`scripts/handoff-hook.mjs`) put its notes in every new session's context
    and ask once when a turn ends during a change without writing it. Merge prep sorts the notes into their docs.
+10. **The workflow is put in front of the session, not left on disk.** A session that reads only CLAUDE.md acts on
+   "Next up" and skips the phases. So the same hooks read the phase from the handoff's latest heading and put files in
+   context whole: the workflow README, `project.md` and the current phase file when a session starts; phases 1 and
+   2 together when no change is in progress (plan mode cannot write the handoff, so the step between them is not
+   seen); phase 3 when a change's plan is approved; and the new phase's file whenever the heading moves.
    Rejected: a command the owner runs before stepping away (it misses crashes, forgotten runs and idle compaction).

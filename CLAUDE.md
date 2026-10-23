@@ -41,5 +41,6 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
   same commit, update what the change made stale, delete what stopped being true.
 
 ## Next up
+Each item is its own change and starts at phase 1 (brainstorm), not at the code.
 <Two to five lines: what comes next and in what order, pointing at spec sections. Rewritten at every merge prep. This
 is the paragraph the next session reads first, so it must be true on the day it is read.>

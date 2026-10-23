@@ -3,7 +3,8 @@
 Notes that carry a change in progress across a `/clear`, a compaction or a crash, dumped here without being sorted
 into the right doc. It bends "one fact, one place", one phase at a time.
 
-1. Read this file before anything else in a session. A hook prints its notes when a session starts.
+1. Read this file before anything else in a session. A hook prints its notes when a session starts, with the file of
+   the phase they name; it reads that phase from the latest heading, so keep `phase <n>` in it.
 2. Notes are stale when the phase they name has ended, or when the change they name has been committed (check
    `git log` since the commit they were written from; another commit in between does not make them stale). Wipe
    stale notes; when unsure, ask the owner first.

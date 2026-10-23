@@ -1,16 +1,45 @@
 // Run with: node --test scripts/handoff-hook.test.mjs (Node 18+, nothing to install)
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { decideStop, hashOf, notesOf, recordName, sessionStartText, stopOutput } from './handoff-hook.mjs'
+import {
+  NO_CHANGE_LEAD,
+  PLAN_APPROVED_LEAD,
+  contextText,
+  decideStop,
+  hashOf,
+  notesOf,
+  phaseFiles,
+  phaseMoved,
+  phaseOf,
+  postToolOutput,
+  recordName,
+  sessionStartText,
+  stopOutput
+} from './handoff-hook.mjs'
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'handoff-hook.mjs')
 const HEADER = '# Handoff\n\nNotes on the change in progress. Keep them short.\n\nNow: nothing.\n'
 const NOTE = '## Add export, phase 3 (implement), from abc1234\n- chose Word over PDF first\n'
+const NOTE_4 = '## Add export, phase 4 (peer review), from abc1234\n- review asked for\n'
+const PHASE_NAMES = ['brainstorm', 'plan', 'implement', 'peer-review', 'harden', 'merge-prep']
+/** A fake workflow file's text, distinguishable by its marker. */
+const marker = (n) => `PHASE-FILE-0${n}`
+
+/** A fake docs/workflow/ in `dir`: README, project.md and 01–06, each with its own marker. */
+function writeWorkflow(dir) {
+  mkdirSync(join(dir, 'docs', 'workflow'), { recursive: true })
+  writeFileSync(join(dir, 'docs', 'workflow', 'README.md'), '# Workflow\nWORKFLOW-README\n')
+  writeFileSync(join(dir, 'docs', 'workflow', 'project.md'), '# Project\nWORKFLOW-PROJECT\n')
+  PHASE_NAMES.forEach((name, i) => writeFileSync(join(dir, 'docs', 'workflow', `0${i + 1}-${name}.md`), `# ${i + 1}\n${marker(i + 1)}\n`))
+}
+
+/** The phase-file markers in `out`, in order. */
+const markers = (out) => out.match(/PHASE-FILE-0\d/g) ?? []
 
 /** Run `fn` inside a fresh git repo with a .gitignore and a committed header-only handoff, then clean up. */
 function inFreshRepo(fn) {
@@ -21,6 +50,7 @@ function inFreshRepo(fn) {
     writeFileSync(join(dir, '.gitignore'), '.claude/handoff/\n')
     mkdirSync(join(dir, 'docs'))
     writeFileSync(join(dir, 'docs', 'handoff.md'), HEADER)
+    writeWorkflow(dir)
     git('add', '.')
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
     fn(dir)
@@ -36,6 +66,7 @@ function hook(dir, event, input) {
 }
 
 const handoff = (dir) => join(dir, 'docs', 'handoff.md')
+const record = (dir, session = 's1') => JSON.parse(readFileSync(join(dir, '.claude', 'handoff', `${session}.json`), 'utf8'))
 
 describe('notesOf', () => {
   it('returns everything from the first ## line on', () => {
@@ -60,6 +91,44 @@ describe('sessionStartText', () => {
 
   it('is empty without notes', () => {
     assert.equal(sessionStartText(HEADER), '')
+  })
+})
+
+describe('phaseOf and phaseFiles', () => {
+  it('takes the phase from the last heading that names one, whatever its case', () => {
+    assert.equal(phaseOf(HEADER + NOTE), 3)
+    assert.equal(phaseOf(HEADER + NOTE + NOTE_4), 4)
+    assert.equal(phaseOf(HEADER + NOTE + '## Loose thoughts\n'), 3)
+    assert.equal(phaseOf(HEADER + '## Fix, PHASE 5 (harden), from x\n'), 5)
+  })
+
+  it('is null with no notes, or no heading that names a phase 1–6', () => {
+    assert.equal(phaseOf(HEADER), null)
+    assert.equal(phaseOf(null), null)
+    assert.equal(phaseOf(HEADER + '## Loose thoughts\n'), null)
+    assert.equal(phaseOf(HEADER + '## Fix, phase 7 (later), from x\n'), null)
+    assert.equal(phaseOf(HEADER + '## Fix, phase three, from x\n'), null)
+    assert.equal(phaseOf('# Handoff\nphase 3 in the header\n'), null)
+  })
+
+  it('gives 01 and 02 at the start, else the phase alone', () => {
+    assert.deepEqual(phaseFiles(null), [1, 2])
+    assert.deepEqual(phaseFiles(4), [4])
+  })
+})
+
+describe('contextText and phaseMoved', () => {
+  it('leads with one line, then each file, skipping missing ones', () => {
+    assert.equal(contextText('Lead:', ['a\n', null, 'b']), 'Lead:\n\na\n\nb\n')
+    assert.equal(contextText('Lead:', [null, '']), '')
+  })
+
+  it('tells never-injected apart from injected for no change', () => {
+    assert.equal(phaseMoved(null, null), true)
+    assert.equal(phaseMoved({ hash: 'h' }, null), true)
+    assert.equal(phaseMoved({ phase: null }, null), false)
+    assert.equal(phaseMoved({ phase: 3 }, 3), false)
+    assert.equal(phaseMoved({ phase: 3 }, 4), true)
   })
 })
 
@@ -96,21 +165,110 @@ describe('decideStop', () => {
 })
 
 describe('the script', () => {
-  it('session-start prints the notes, and nothing for a header-only file', () => {
+  it('session-start prints the notes, the workflow and the current phase, in order', () => {
     inFreshRepo((dir) => {
-      assert.equal(hook(dir, 'session-start', { source: 'startup' }), '')
       appendFileSync(handoff(dir), NOTE)
       const out = hook(dir, 'session-start', { source: 'compact' })
-      assert.ok(out.includes(NOTE.trimEnd()))
+      const at = (text) => out.indexOf(text)
+      assert.ok(at(NOTE.trimEnd()) >= 0 && at(NOTE.trimEnd()) < at('WORKFLOW-README'))
+      assert.ok(at('WORKFLOW-README') < at('WORKFLOW-PROJECT') && at('WORKFLOW-PROJECT') < at(marker(3)))
+      assert.deepEqual(markers(out), [marker(3)])
       assert.ok(!out.includes('# Handoff'))
+      assert.equal(record(dir).phase, 3)
+    })
+  })
+
+  it('session-start with no notes prints the workflow and 01 + 02 under the no-change line', () => {
+    inFreshRepo((dir) => {
+      const out = hook(dir, 'session-start', { source: 'startup' })
+      assert.ok(out.includes('WORKFLOW-README') && out.includes('WORKFLOW-PROJECT'))
+      assert.ok(out.indexOf(NO_CHANGE_LEAD) < out.indexOf(marker(1)))
+      assert.deepEqual(markers(out), [marker(1), marker(2)])
+      assert.deepEqual(record(dir), { phase: null })
+    })
+  })
+
+  it('prompt re-injects when the phase moves, and 01 + 02 once the notes are wiped', () => {
+    inFreshRepo((dir) => {
+      appendFileSync(handoff(dir), NOTE)
+      hook(dir, 'session-start', {})
+      assert.equal(hook(dir, 'prompt', {}), '')
+      appendFileSync(handoff(dir), NOTE_4)
+      assert.deepEqual(markers(hook(dir, 'prompt', {})), [marker(4)])
+      assert.equal(hook(dir, 'prompt', {}), '')
+      writeFileSync(handoff(dir), HEADER)
+      const out = hook(dir, 'prompt', {})
+      assert.ok(out.startsWith(NO_CHANGE_LEAD))
+      assert.deepEqual(markers(out), [marker(1), marker(2)])
+      assert.deepEqual(record(dir), { phase: null, hash: hashOf(HEADER) })
+    })
+  })
+
+  it('prompt prints nothing with no change after session-start', () => {
+    inFreshRepo((dir) => {
+      hook(dir, 'session-start', {})
+      assert.equal(hook(dir, 'prompt', {}), '')
+    })
+  })
+
+  it('post-tool gives a moved phase, nothing when it stays, 03 after ExitPlanMode, and keeps the hash', () => {
+    inFreshRepo((dir) => {
+      appendFileSync(handoff(dir), NOTE)
+      hook(dir, 'prompt', {})
+      const hash = record(dir).hash
+      assert.equal(hook(dir, 'post-tool', { tool_name: 'Edit' }), '')
+      appendFileSync(handoff(dir), NOTE_4)
+      const moved = JSON.parse(hook(dir, 'post-tool', { tool_name: 'Edit' }))
+      assert.equal(moved.hookSpecificOutput.hookEventName, 'PostToolUse')
+      assert.deepEqual(markers(moved.hookSpecificOutput.additionalContext), [marker(4)])
+      assert.deepEqual(record(dir), { hash, phase: 4 })
+      // A plan approved mid-change leaves the phase alone.
+      assert.equal(hook(dir, 'post-tool', { tool_name: 'ExitPlanMode' }), '')
+      assert.deepEqual(record(dir), { hash, phase: 4 })
+    })
+  })
+
+  it('post-tool gives 03 when a plan is approved at the start of a change', () => {
+    inFreshRepo((dir) => {
+      hook(dir, 'session-start', {})
+      const approved = JSON.parse(hook(dir, 'post-tool', { tool_name: 'ExitPlanMode' }))
+      assert.ok(approved.hookSpecificOutput.additionalContext.startsWith(PLAN_APPROVED_LEAD))
+      assert.deepEqual(markers(approved.hookSpecificOutput.additionalContext), [marker(3)])
+      assert.deepEqual(record(dir), { phase: 3 })
+    })
+  })
+
+  it('notes that name no phase get no phase file, not the no-change 01 + 02', () => {
+    inFreshRepo((dir) => {
+      appendFileSync(handoff(dir), '## Loose thoughts\n- maybe later\n')
+      const out = hook(dir, 'session-start', {})
+      assert.ok(out.includes('Loose thoughts') && out.includes('WORKFLOW-README'))
+      assert.ok(!out.includes(NO_CHANGE_LEAD))
+      assert.deepEqual(markers(out), [])
+      assert.equal(hook(dir, 'prompt', {}), '')
+    })
+  })
+
+  it('post-tool with no record and no change prints nothing', () => {
+    inFreshRepo((dir) => {
+      assert.equal(hook(dir, 'post-tool', { tool_name: 'Bash' }), '')
+      assert.deepEqual(postToolOutput('x').hookSpecificOutput, { hookEventName: 'PostToolUse', additionalContext: 'x' })
     })
   })
 
   it('blocks a stop after a prompt with no edit while notes are present', () => {
     inFreshRepo((dir) => {
       appendFileSync(handoff(dir), NOTE)
-      assert.equal(hook(dir, 'prompt', { prompt: 'go' }), '')
+      assert.deepEqual(markers(hook(dir, 'prompt', { prompt: 'go' })), [marker(3)])
       assert.deepEqual(JSON.parse(hook(dir, 'stop', {})), stopOutput())
+    })
+  })
+
+  it('allows a stop when only session-start has written the record', () => {
+    inFreshRepo((dir) => {
+      appendFileSync(handoff(dir), NOTE)
+      hook(dir, 'session-start', {})
+      assert.equal(hook(dir, 'stop', {}), '')
     })
   })
 
@@ -173,7 +331,7 @@ describe('the script', () => {
   it('exits 0 with no output on garbage stdin or an unknown event', () => {
     inFreshRepo((dir) => {
       appendFileSync(handoff(dir), NOTE)
-      for (const event of ['session-start', 'prompt', 'stop']) assert.equal(hook(dir, event, 'not json {'), '')
+      for (const event of ['session-start', 'prompt', 'post-tool', 'stop']) assert.equal(hook(dir, event, 'not json {'), '')
       assert.equal(hook(dir, 'nonsense', {}), '')
     })
   })
