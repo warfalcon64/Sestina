@@ -9,7 +9,8 @@
    same change (see project.md for the path and format).
 2. Update the structural docs that the change made stale: the architecture map, the glossary when you coined a term,
    the spec note when something planned got built.
-3. Delete what stopped being true. Git keeps the history; a stale line in a doc costs every future session.
+3. Delete what stopped being true. Git keeps the history; a stale line in a doc costs every future session. Wipe
+   `docs/handoff.md` to its header once its notes are in their docs.
 4. Write the commit message in the repo's own style: read the last ten with `git log`.
 5. Say what the change does not cover, so the owner is not surprised later.
 

@@ -16,6 +16,8 @@ The system leans on these. Where one is false, fix it first or the docs describe
   `package.json`, no install, whatever the repo's language) and OpenRouter (`OPENROUTER_API_KEY`, or `--key-file`;
   `PEER_REVIEW_MODEL` changes the default reviewer). Without either, phase 4 is the lead's own read of the diff; say
   so in `project.md` and keep the verdict-per-finding discipline for whatever review does happen.
+- **Node also runs the handoff hooks**, and Claude Code runs them. Without either, `docs/handoff.md` rests on its
+  header's rules alone: keep the file and its CLAUDE.md lines, skip the hook and `.claude/settings.json`.
 - **The code is the source of truth.** The architecture page and the ADRs point at files; they never restate what a
   file does. If the project has no stable file layout yet (a prototype rewritten weekly), start with CLAUDE.md, the
   ADR index and the workflow only, and add the map and glossary once paths stop moving.
@@ -27,12 +29,16 @@ The system leans on these. Where one is false, fix it first or the docs describe
 ```
 cp -r <kit>/docs <repo>/docs
 cp <kit>/scripts/peer-review.mjs <kit>/scripts/peer-review.test.mjs <repo>/scripts/
+cp <kit>/scripts/handoff-hook.mjs <kit>/scripts/handoff-hook.test.mjs <repo>/scripts/
+cp -r <kit>/.claude <repo>/.claude           # or merge its hooks into an existing settings.json
 cp <kit>/CLAUDE.md <repo>/CLAUDE.md          # or merge into an existing one, keeping its facts
 ```
 
-Add `.peer-review/` to `.gitignore`. The review runs as `node scripts/peer-review.mjs` from anywhere in the repo,
+Add `.peer-review/` and `.claude/handoff/` to `.gitignore`. Claude Code holds back a repo's hooks until its
+workspace trust prompt is accepted, and loads them when a session starts; `node --test scripts/handoff-hook.test.mjs`
+runs the hook's tests. The review runs as `node scripts/peer-review.mjs` from anywhere in the repo,
 including one with no commits yet, and its tests as `node --test scripts/peer-review.test.mjs`. Without Node, skip
-the two script files; nothing else in the kit needs it.
+the four script files and `.claude/settings.json`; nothing else in the kit needs it.
 
 ## 3. Fill, in this order
 

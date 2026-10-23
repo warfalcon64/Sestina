@@ -1,7 +1,8 @@
 # Documentation system kit
 
 The shape of Campfire's docs, without Campfire's contents. Copy it into a repo, then follow BOOTSTRAP.md. The
-system is five files with one job each, plus a workflow that says when each file is touched.
+system is five files with one job each, a scratch file for the change in progress, and a workflow that says when each
+file is touched.
 
 | File | Job | Answers | Touched when |
 |---|---|---|---|
@@ -10,11 +11,13 @@ system is five files with one job each, plus a workflow that says when each file
 | `docs/adr/` | the why | why it is this way, so nobody undoes it | a decision is made, refined, reversed or dropped |
 | `docs/glossary.md` | the words | what a coined term means and where it lives | a term is coined |
 | `docs/spec.md` | the not-yet | what is designed but unbuilt, and in what order | a section ships (it collapses) or a design changes |
+| `docs/handoff.md` | the scratchpad | where the change in progress stands, and what the owner chose on the way | every reply worth keeping; header only after the commit |
 | `docs/workflow/` | the how | what each phase of a change requires | rarely; `project.md` when a command or path changes |
 
-Copied verbatim, no edits needed: `docs/workflow/01-06*.md`, `docs/workflow/README.md`, `scripts/peer-review.mjs`
-and its test. The script is the only piece with a runtime (Node 18+, nothing to install) and is optional; the rest is
-plain Markdown for a repo in any language. Written fresh per repo: everything else. The templates here keep the wording of the rules and replace
+Copied verbatim, no edits needed: `docs/workflow/01-06*.md`, `docs/workflow/README.md`, `docs/handoff.md`,
+`scripts/peer-review.mjs`, `scripts/handoff-hook.mjs`, their tests and `.claude/settings.json`. The two scripts are
+the only pieces with a runtime (Node 18+, nothing to install) and are optional; the rest is plain Markdown for a repo
+in any language. Written fresh per repo: everything else. The templates here keep the wording of the rules and replace
 every fact with an `<angle-bracket>` placeholder; a placeholder left in place is a bug.
 
 ## The rules that make it work
@@ -36,3 +39,10 @@ These are what a session is actually following. The files are just where the rul
 7. **The owner steers.** Work stops for them at the design choice, the go-ahead and the commit.
 8. **Peer review is advisory and verified.** An outside model from another family reads the diff; every finding is
    checked against the code and given a verdict; style notes are ignored.
+9. **A change in progress is written down as it goes.** `docs/handoff.md` is where rule 1 bends: unsorted notes for
+   the current phase, because a `/clear`, a compaction or a crash loses whatever lives only in the conversation, and
+   idle compaction strikes while a session waits on the owner, when their choices are freshest. It is a better
+   compaction, not a transcript: written as things happen, kept to what the code and docs cannot show, and in the
+   repo where the owner can read it. Hooks (`scripts/handoff-hook.mjs`) put its notes in every new session's context
+   and ask once when a turn ends during a change without writing it. Merge prep sorts the notes into their docs.
+   Rejected: a command the owner runs before stepping away (it misses crashes, forgotten runs and idle compaction).

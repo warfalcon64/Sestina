@@ -15,6 +15,8 @@
 - <Palette, icons, copy voice: the things that make a diff look wrong before it is wrong. Delete if no UI.>
 
 ## Docs
+- `docs/handoff.md` — read first: notes on the change in progress, kept current as it goes. Its header holds the
+  rules.
 - `docs/architecture.md` — the shape of the app and which file to open. Read before working in an unfamiliar
   subsystem; update it when structure moves.
 - `docs/adr/README.md` — index of architecture decision records, one row each. Read the row before changing a
@@ -33,6 +35,8 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 - Peer review is `node scripts/peer-review.mjs`: an outside model from another family reads the uncommitted diff, and every finding
   is checked against the code before it is acted on.
 - The owner steers; work stops for them three times: the design choice (1), the go-ahead (2), the commit (6).
+- Through every phase, keep `docs/handoff.md` current as you go, as its header says, so a cleared or compacted
+  session can pick up the work.
 - Merge prep is where the docs get honest: name the ADRs the work adds, rewrites or leaves alone and write them in the
   same commit, update what the change made stale, delete what stopped being true.
 
