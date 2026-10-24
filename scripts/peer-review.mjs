@@ -395,7 +395,7 @@ export function foldChunk(reply, chunk) {
 }
 
 /** Reads the streamed reply into the shape a plain completion has, saying every minute how far it has got. */
-async function readStream(res, abort) {
+export async function readStream(res, abort) {
   const started = Date.now()
   let lastNote = started
   let reply = { model: undefined, usage: undefined, content: '', received: 0 }
@@ -406,22 +406,35 @@ async function readStream(res, abort) {
     idle = setTimeout(() => abort(new Error(`no data from OpenRouter for ${IDLE_MS / 60000} minutes`)), IDLE_MS)
   }
   const decoder = new TextDecoder()
+  // Folds the complete lines of `text` into the reply and returns the unfinished last one. At the end of the
+  // stream a payload cut mid-line is dropped, not thrown: the reply's content may already be whole.
+  const fold = (text, last = false) => {
+    const { data, rest } = sseData(text)
+    for (const payload of data) {
+      if (payload === '[DONE]') continue
+      let chunk
+      try {
+        chunk = JSON.parse(payload)
+      } catch (err) {
+        if (last) continue
+        throw err
+      }
+      reply = foldChunk(reply, chunk)
+    }
+    return rest
+  }
   stillAlive()
   try {
     for await (const bytes of res.body) {
       stillAlive()
-      const { data, rest } = sseData(tail + decoder.decode(bytes, { stream: true }))
-      tail = rest
-      for (const payload of data) {
-        if (payload === '[DONE]') continue
-        reply = foldChunk(reply, JSON.parse(payload))
-      }
+      tail = fold(tail + decoder.decode(bytes, { stream: true }))
       if (Date.now() - lastNote >= PROGRESS_MS) {
         lastNote = Date.now()
         const minutes = Math.round((lastNote - started) / 60000)
         console.log(`  still working: ${minutes} min, ${reply.received.toLocaleString()} characters so far`)
       }
     }
+    fold(tail + decoder.decode() + '\n', true)
   } finally {
     clearTimeout(idle)
   }

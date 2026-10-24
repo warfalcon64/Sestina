@@ -15,6 +15,7 @@ import {
   looksBinary,
   normalizeReview,
   parseArgs,
+  readStream,
   reasoningNote,
   requestBody,
   sseData
@@ -276,5 +277,37 @@ describe('streamed reply', () => {
 
   it('throws on an error sent mid-stream', () => {
     assert.throws(() => foldChunk({ content: '', received: 0 }, { error: { message: 'provider died' } }), /provider died/)
+  })
+
+  /** What readStream makes of a body sent as these chunks (strings, or byte arrays to split a character). */
+  async function streamed(...chunks) {
+    const body = (async function* () {
+      for (const chunk of chunks) yield typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk
+    })()
+    const reply = await readStream({ body }, () => assert.fail('aborted'))
+    return reply.choices[0].message.content
+  }
+  const delta = (content) => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`
+
+  it('keeps a last data line that no newline follows', async () => {
+    assert.equal(await streamed(`${delta('{"a"')}\n\n`, delta(':1}')), '{"a":1}')
+  })
+
+  it('keeps a character split across the last two chunks', async () => {
+    const bytes = new TextEncoder().encode(delta('é'))
+    const cut = bytes.indexOf(0xc3) + 1
+    assert.equal(await streamed(bytes.slice(0, cut), bytes.slice(cut)), 'é')
+  })
+
+  it('drops a last payload cut mid-line and keeps what came before', async () => {
+    assert.equal(await streamed(`${delta('{"a":1}')}\n\n`, 'data: {"usage":{"prom'), '{"a":1}')
+  })
+
+  it('skips a last [DONE] that no newline follows', async () => {
+    assert.equal(await streamed(`${delta('ok')}\n\n`, 'data: [DONE]'), 'ok')
+  })
+
+  it('still throws on an error sent as the last line', async () => {
+    await assert.rejects(streamed(`${delta('{"a"')}\n\n`, 'data: {"error":{"message":"provider died"}}'), /provider died/)
   })
 })

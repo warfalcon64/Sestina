@@ -39,9 +39,8 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Unpark the stream tail flush: `git stash pop` (the stash named "stream tail flush"), then rerun its MiMo review.
-   The fix and its five tests are done; only a clean round that reasoned is left. Then, as its own change, let
-   `--key-file` read a `KEY=value` file such as `.env`.
+1. Let `scripts/peer-review.mjs --key-file` read a `KEY=value` file such as `.env` (today it takes a bare key or
+   JSON, so the kit's own `.env`, written `OPENROUTER_API_KEY = <key>`, cannot be passed to it).
 2. `template/docs/workflow/project.md` lines 3–4 claim it is the only workflow file that names a path or a command;
    reword it as the kit's own `project.md` does. Laze's copy needs the same line by hand.
 3. Reviewer: since the script sends a reasoning effort, MiMo reasoned on 6 of 6 runs. Decide whether every repo's
