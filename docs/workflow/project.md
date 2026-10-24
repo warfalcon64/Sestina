@@ -20,11 +20,11 @@ It is never copied: a repo fills in `template/docs/workflow/project.md` instead.
   run finds what an unfocused one misses. Its own tests: `node --test scripts/peer-review.test.mjs`.
   Every repo copies this kit, so a bug here ships to all of them: once the lead and the owner agree the change is
   stable, review it again after each round of fixes, until a round comes back with no confirmed findings.
-  The kit passes `--model xiaomi/mimo-v2.6-pro`: on this repo's first restructure it matched `moonshotai/kimi-k3`,
-  the script's default, at a twelfth of the cost ($0.03 against $0.31 a round), and repeated rounds make cost count.
-  MiMo only thinks when asked, so it needs an effort sent; before the script sent one, it skipped reasoning on half
-  its runs. Which level makes no difference: low, high and max each reasoned 15–20k tokens on the same diff. A run
-  the script warns about does not count as a round.
+  Exit 2 means OpenRouter needs the owner (no key, a rejected key, no credits, a refusal): stop and tell them, and
+  never skip the review. A stall or a provider failing partway is retried by the script itself; "Gave up after 3
+  attempts" can simply be run again.
+  The default reviewer is MiMo (ADR 0003). Which effort makes no difference to it: low, high and max each reasoned
+  15–20k tokens on the same diff. A run the script warns about does not count as a round.
 - **Real checks.** A change to the hook or a phase file: run
   `echo '{"session_id":"t","cwd":"."}' | node scripts/handoff-hook.mjs session-start` and read what a session is
   handed, then delete `.claude/handoff/t.json`. A change to what gets copied: run BOOTSTRAP §2 into an empty

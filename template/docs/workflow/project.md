@@ -16,6 +16,9 @@ is the only one to rewrite when the kit is copied.
   that. It needs Node 18+ and `OPENROUTER_API_KEY`, or `--key-file <path>` to a file holding
   the key alone, as JSON, or as a `.env` line. Pass `--focus "<what the change is and where to look>"`: a focused
   run finds what an unfocused one misses. Its own tests: `node --test scripts/peer-review.test.mjs`.
+  Exit 2 means OpenRouter needs the owner (no key, a rejected key, no credits, a refusal): stop and tell them, and
+  never skip the review. A stall or a provider failing partway is retried by the script itself; "Gave up after 3
+  attempts" can simply be run again.
   <If Node or a key is not available, replace this line with: phase 4 is the lead's own read of the diff, and the
   verdict list says no outside model reviewed it.>
 - **Real checks.** <What tests cannot see and how it is checked for real: a prompt change needs a real model call, a

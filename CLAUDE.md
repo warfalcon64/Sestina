@@ -5,9 +5,8 @@ scripts.
 
 ## Commands
 - `node --test scripts/*.test.mjs`: both suites, and each imports its script, so a syntax error fails it.
-- `node scripts/peer-review.mjs --model xiaomi/mimo-v2.6-pro` costs money and needs `OPENROUTER_API_KEY` (or
-  `--key-file .env`); run it in phase 4, not before. The kit reviews with that model; `docs/workflow/project.md`
-  says why.
+- `node scripts/peer-review.mjs --key-file .env` costs money; run it in phase 4, not before. Exit 2 means OpenRouter
+  needs the owner. ADR 0003 says why the default reviewer is MiMo.
 - `echo '{"session_id":"t","cwd":"."}' | node scripts/handoff-hook.mjs session-start` shows what a session in the kit
   is handed. Delete `.claude/handoff/t.json` afterwards.
 
@@ -40,15 +39,12 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Reviewer: since the script sends a reasoning effort, MiMo reasoned on 6 of 6 runs. Decide whether every repo's
-   default moves from `moonshotai/kimi-k3` to it. Also a candidate: retry once when a call stalls with no data for
-   5 minutes (MiMo did twice while one of its providers was degraded).
-2. Bootstrap by script: copy and generate the files with code as far as possible, with a mode that re-copies into a
+1. Bootstrap by script: copy and generate the files with code as far as possible, with a mode that re-copies into a
    repo already running the system and keeps its handoff notes and ADR rows.
-3. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
-4. Re-copy into the repos that run the system once the verbatim changes above land, so each is touched once: Campfire,
+2. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
+3. Re-copy into the repos that run the system once the verbatim changes above land, so each is touched once: Campfire,
    FTL, IAF, ISK0, Laze and WebMedTools (New), all under `~/Documents/Projects`. Each gets `.env` in `.gitignore`,
-   the script fixes and the `--key-file` wording in its `project.md`; all but Campfire also take that file's
-   reworded opening line (the "only workflow file" claim) by hand. Campfire, IAF and WebMedTools also lack c823ecd
-   (the ADR length-and-naming paragraph, "length, naming" in `project.md`, merge prep's trim line) and the handoff
-   hook. IAF waits until the owner has keys.
+   the script fixes, and in its `project.md` the `--key-file` wording and the exit-2 lines; all but Campfire also
+   take that file's reworded opening line (the "only workflow file" claim) by hand. Campfire, IAF and WebMedTools
+   also lack c823ecd (the ADR length-and-naming paragraph, "length, naming" in `project.md`, merge prep's trim line)
+   and the handoff hook. IAF waits until the owner has keys.

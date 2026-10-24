@@ -17,7 +17,9 @@
  * against the code and give it a verdict.
  *
  * The reply is streamed, so a reviewer that thinks for many minutes never leaves the connection idle (an idle request
- * gets dropped on the way), and a progress line prints every minute while it works.
+ * gets dropped on the way), and a progress line prints every minute while it works. A failure the owner must fix (no
+ * key, a rejected key, no credits, a refusal) exits 2 at once; a stall, an error partway or a transient status is
+ * tried up to twice more, skipping the provider that failed.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -25,8 +27,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { join, resolve } from 'node:path'
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const DEFAULT_MODEL = process.env.PEER_REVIEW_MODEL ?? 'moonshotai/kimi-k3'
-/** Sent on every call: some models only think when asked, and max is kimi-k3's own default (`enabled` alone means medium). */
+const DEFAULT_MODEL = process.env.PEER_REVIEW_MODEL ?? 'xiaomi/mimo-v2.6-pro'
+/** Sent on every call: some models, MiMo among them, only think when asked (`enabled` alone means medium). */
 const DEFAULT_EFFORT = 'max'
 /** OpenRouter's reasoning levels; it maps one a model lacks to the nearest it has. */
 const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none'])
@@ -34,6 +36,10 @@ const TIMEOUT_MS = 30 * 60 * 1000
 /** Nothing at all from OpenRouter for this long (it sends keep-alive comments while a model thinks) means the call is dead. */
 const IDLE_MS = 5 * 60 * 1000
 const PROGRESS_MS = 60 * 1000
+const MAX_ATTEMPTS = 3
+/** Waits before the second and third attempts when OpenRouter sends no Retry-After; one it sends is capped at 60 s. */
+const RETRY_WAITS_MS = [5000, 20000]
+const MAX_RETRY_AFTER_S = 60
 const OUT_DIR = '.peer-review'
 
 const LOCKFILES = new Set([
@@ -393,14 +399,53 @@ export function sseData(text) {
   return { data, rest }
 }
 
+/**
+ * A failed call: `status` is the HTTP status or the stream's `error.code`, `retryAfter` is in seconds, `inStream` marks
+ * an error sent after 200 OK, `stalled` an idle stream and `timedOut` the overall timeout. `detail` is OpenRouter's own
+ * message.
+ */
+export class CallError extends Error {
+  constructor(message, { status, provider, retryAfter, metadata, inStream = false, stalled = false, timedOut = false, detail } = {}) {
+    super(message)
+    this.name = 'CallError'
+    Object.assign(this, { status, provider, retryAfter, metadata, inStream, stalled, timedOut, detail })
+  }
+}
+
+/** Whether a failure needs the owner, is worth another attempt, or is a bug or a dead end; and what to say. */
+export function classifyFailure(err) {
+  if (!(err instanceof CallError)) {
+    const cause = err?.cause?.message ? ` (${err.cause.message})` : ''
+    return { kind: 'retry', message: `${err instanceof Error ? err.message : String(err)}${cause}` }
+  }
+  if (err.timedOut) return { kind: 'fatal', message: err.message }
+  // An error sent after 200 OK is a provider failing partway, whatever its code: a real key or credit problem comes back
+  // as an HTTP status on the next attempt.
+  if (err.stalled || err.inStream) return { kind: 'retry', message: err.message }
+  const status = Number.parseInt(err.status, 10)
+  if (status === 401) return { kind: 'owner', message: 'OpenRouter rejected the key: check OPENROUTER_API_KEY or --key-file.' }
+  if (status === 402 && err.metadata?.limit_source !== 'openrouter_in_flight_budget') {
+    return { kind: 'owner', message: 'OpenRouter is out of credits for this account or key: add credits at https://openrouter.ai/settings/credits, then rerun.' }
+  }
+  if (status === 403) return { kind: 'owner', message: `OpenRouter refused the request: ${err.detail || err.message}.` }
+  if (!Number.isInteger(status) || status === 402 || status === 408 || status === 429 || status >= 500) return { kind: 'retry', message: err.message }
+  return { kind: 'fatal', message: err.message }
+}
+
 /** Folds one streamed chunk into the reply so far; an error sent mid-stream throws. */
 export function foldChunk(reply, chunk) {
-  if (chunk.error) throw new Error(`OpenRouter: ${chunk.error.message ?? JSON.stringify(chunk.error)}`)
+  const provider = chunk.provider ?? reply.provider
+  if (chunk.error) {
+    const detail = chunk.error.message ?? JSON.stringify(chunk.error)
+    const named = chunk.provider ?? chunk.error.metadata?.provider_name ?? reply.provider
+    throw new CallError(`OpenRouter: ${detail}`, { status: chunk.error.code, metadata: chunk.error.metadata, provider: named, inStream: true, detail })
+  }
   const delta = chunk.choices?.[0]?.delta ?? {}
   const content = typeof delta.content === 'string' ? delta.content : ''
   const reasoning = typeof delta.reasoning === 'string' ? delta.reasoning : ''
   return {
     model: chunk.model ?? reply.model,
+    provider,
     usage: chunk.usage ?? reply.usage,
     content: reply.content + content,
     received: reply.received + content.length + reasoning.length
@@ -408,15 +453,15 @@ export function foldChunk(reply, chunk) {
 }
 
 /** Reads the streamed reply into the shape a plain completion has, saying every minute how far it has got. */
-export async function readStream(res, abort) {
+export async function readStream(res, abort, idleMs = IDLE_MS) {
   const started = Date.now()
   let lastNote = started
-  let reply = { model: undefined, usage: undefined, content: '', received: 0 }
+  let reply = { model: undefined, provider: undefined, usage: undefined, content: '', received: 0 }
   let tail = ''
   let idle
   const stillAlive = () => {
     clearTimeout(idle)
-    idle = setTimeout(() => abort(new Error(`no data from OpenRouter for ${IDLE_MS / 60000} minutes`)), IDLE_MS)
+    idle = setTimeout(() => abort(new CallError(`no data from OpenRouter for ${idleMs / 60000} minutes`, { stalled: true, provider: reply.provider })), idleMs)
   }
   const decoder = new TextDecoder()
   // Folds the complete lines of `text` into the reply and returns the unfinished last one. At the end of the
@@ -448,15 +493,19 @@ export async function readStream(res, abort) {
       }
     }
     fold(tail + decoder.decode() + '\n', true)
+  } catch (err) {
+    // Any failure partway, a dropped connection included, names the provider that was streaming.
+    if (err && typeof err === 'object') err.provider ??= reply.provider
+    throw err
   } finally {
     clearTimeout(idle)
   }
   return { model: reply.model, usage: reply.usage, choices: [{ message: { content: reply.content } }] }
 }
 
-/** The request OpenRouter is sent: a streamed JSON reply, its usage, and how hard to think. */
-export function requestBody({ model, prompt, effort = DEFAULT_EFFORT }) {
-  return {
+/** The request OpenRouter is sent: a streamed JSON reply, its usage, how hard to think, and providers to skip. */
+export function requestBody({ model, prompt, effort = DEFAULT_EFFORT, ignore = [] }) {
+  const body = {
     model,
     messages: [
       { role: 'system', content: SYSTEM },
@@ -467,6 +516,8 @@ export function requestBody({ model, prompt, effort = DEFAULT_EFFORT }) {
     stream: true,
     usage: { include: true }
   }
+  if (ignore.length) body.provider = { ignore }
+  return body
 }
 
 /** A warning when a reviewer asked to think reports that it did not, or does not say; '' when it reasoned. */
@@ -480,32 +531,87 @@ export function reasoningNote(usage, effort) {
   )
 }
 
-async function callModel({ key, model, prompt, effort }) {
-  const body = JSON.stringify(requestBody({ model, prompt, effort }))
-  for (let attempt = 0; ; attempt++) {
+/** A non-ok response as a CallError, with OpenRouter's `error` and `Retry-After` read when it sends them. */
+async function statusError(res) {
+  const text = await res.text().catch(() => '')
+  let error
+  try {
+    error = JSON.parse(text)?.error
+  } catch {
+    /* not JSON */
+  }
+  const detail = typeof error?.message === 'string' ? error.message : text.slice(0, 300)
+  // Retry-After is seconds or an HTTP date.
+  const header = res.headers?.get?.('retry-after')
+  const retryAfter = !header ? NaN : /^\d+$/.test(header.trim()) ? Number(header) : Math.ceil((Date.parse(header) - Date.now()) / 1000)
+  return new CallError(`OpenRouter ${res.status}: ${detail}`, {
+    status: res.status,
+    metadata: error?.metadata,
+    provider: error?.metadata?.provider_name,
+    retryAfter: Number.isFinite(retryAfter) ? Math.max(retryAfter, 0) : undefined,
+    detail
+  })
+}
+
+/**
+ * Up to MAX_ATTEMPTS calls. A failure the owner must fix, or one another attempt cannot fix, throws at once with its
+ * `kind`; any other retries, skipping the provider that failed when it is known.
+ */
+export async function callModel({ key, model, prompt, effort, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), idleMs = IDLE_MS }) {
+  const ignore = []
+  let last
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const body = JSON.stringify(requestBody({ model, prompt, effort, ignore }))
     const controller = new AbortController()
     const abort = (reason) => controller.abort(reason)
-    const overall = setTimeout(() => abort(new Error(`no complete reply in ${TIMEOUT_MS / 60000} minutes`)), TIMEOUT_MS)
+    const overall = setTimeout(() => abort(new CallError(`no complete reply in ${TIMEOUT_MS / 60000} minutes`, { timedOut: true })), TIMEOUT_MS)
+    // Until the stream starts, readStream's watchdog is not running: a hang here is a stall too.
+    const waiting = setTimeout(() => abort(new CallError(`no response from OpenRouter for ${idleMs / 60000} minutes`, { stalled: true })), idleMs)
+    let failure
     try {
-      const res = await fetch(API_URL, {
+      const res = await fetchImpl(API_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'peer-review' },
         body,
         signal: controller.signal
       })
-      if (res.ok) return await readStream(res, abort)
-      const text = await res.text().catch(() => '')
-      const retryable = res.status === 429 || res.status >= 500
-      if (retryable && attempt < 1) {
-        console.log(`  ${res.status} from OpenRouter, retrying once…`)
-        await new Promise((r) => setTimeout(r, 4000))
-        continue
+      if (res.ok) {
+        clearTimeout(waiting)
+        return await readStream(res, abort, idleMs)
       }
-      throw new Error(`OpenRouter ${res.status}: ${text.slice(0, 300)}`)
+      failure = await statusError(res)
+      // statusError reads the body quietly, so a timeout that cut it short shows only here.
+      if (controller.signal.aborted && controller.signal.reason) failure = controller.signal.reason
+    } catch (err) {
+      // Our own abort reason is the failure, even if the runtime wraps it.
+      failure = controller.signal.aborted && controller.signal.reason ? controller.signal.reason : err
+      if (failure !== err && failure && typeof failure === 'object') failure.provider ??= err?.provider
     } finally {
+      clearTimeout(waiting)
       clearTimeout(overall)
     }
+    // Skipping every provider leaves OpenRouter none to route to, so the attempt left goes to all of them again.
+    if (failure?.metadata?.failed_routing_step === 'Filter by Ignored Providers' && ignore.length && attempt < MAX_ATTEMPTS) {
+      console.log(`  every provider has been skipped; retrying with all of them (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`)
+      ignore.length = 0
+      continue
+    }
+    last = classifyFailure(failure)
+    if (last.kind !== 'retry') throw Object.assign(new Error(last.message), { kind: last.kind })
+    if (attempt === MAX_ATTEMPTS) break
+    const provider = failure?.provider
+    if (provider && !ignore.includes(provider)) ignore.push(provider)
+    const retryAfter = failure?.retryAfter
+    const wait = typeof retryAfter === 'number' ? Math.min(retryAfter, MAX_RETRY_AFTER_S) * 1000 : RETRY_WAITS_MS[attempt - 1]
+    console.log(`  ${last.message}; retrying (attempt ${attempt + 1} of ${MAX_ATTEMPTS})${provider ? `, skipping ${provider}` : ''}…`)
+    await sleep(wait)
   }
+  throw Object.assign(new Error(`Gave up after ${MAX_ATTEMPTS} attempts: ${last.message}`), { kind: 'retry' })
+}
+
+/** 2 when OpenRouter needs the owner (credits, the key, or a refusal), 1 for any other failure. */
+export function exitCode(err) {
+  return err?.kind === 'owner' ? 2 : 1
 }
 
 function printReview(review, meta) {
@@ -572,7 +678,7 @@ async function main() {
   const key = readKey(opts.keyFile)
   if (!key) {
     console.error('No API key. Set OPENROUTER_API_KEY, or pass --key-file <file holding the key, JSON with openrouterApiKey, or an OPENROUTER_API_KEY= line>.')
-    process.exitCode = 1
+    process.exitCode = exitCode({ kind: 'owner' })
     return
   }
   console.log(`Asking ${opts.model}…`)
@@ -606,6 +712,6 @@ async function main() {
 if (process.argv[1] && process.argv[1].endsWith('peer-review.mjs')) {
   main().catch((err) => {
     console.error(err instanceof Error ? err.message : String(err))
-    process.exitCode = 1
+    process.exitCode = exitCode(err)
   })
 }

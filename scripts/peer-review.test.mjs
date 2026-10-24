@@ -7,6 +7,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   buildPack,
+  CallError,
+  callModel,
+  classifyFailure,
+  exitCode,
   estimateTokens,
   extractJson,
   fileDecision,
@@ -323,5 +327,235 @@ describe('streamed reply', () => {
 
   it('still throws on an error sent as the last line', async () => {
     await assert.rejects(streamed(`${delta('{"a"')}\n\n`, 'data: {"error":{"message":"provider died"}}'), /provider died/)
+  })
+})
+
+describe('failures', () => {
+  it('sorts each failure into owner, retry or fatal', () => {
+    const http = (status, opts = {}) => new CallError(`OpenRouter ${status}: x`, { status, detail: 'x', ...opts })
+    const cases = [
+      [http(401), 'owner', /rejected the key/],
+      [http(402), 'owner', /out of credits.*settings\/credits/],
+      [http(402, { metadata: { limit_source: 'openrouter_in_flight_budget' } }), 'retry'],
+      [http(403, { detail: 'flagged' }), 'owner', /refused the request: flagged/],
+      [http(403, { detail: '' }), 'owner', /refused the request: OpenRouter 403/],
+      [http(400), 'fatal'],
+      [http(408), 'retry'],
+      [http(429), 'retry'],
+      [http(500), 'retry'],
+      [http(502), 'retry'],
+      [http(503), 'retry'],
+      [http(504), 'retry'],
+      [new CallError('no data', { stalled: true }), 'retry'],
+      [new CallError('OpenRouter: died'), 'retry'],
+      [new CallError('OpenRouter: died', { status: null }), 'retry'],
+      [new CallError('OpenRouter: upstream auth failed', { status: 401, inStream: true }), 'retry'],
+      [new TypeError('fetch failed'), 'retry'],
+      [new CallError('no complete reply in 30 minutes', { timedOut: true }), 'fatal']
+    ]
+    for (const [err, kind, message] of cases) {
+      const got = classifyFailure(err)
+      assert.equal(got.kind, kind, err.message)
+      if (message) assert.match(got.message, message)
+    }
+  })
+
+  it('keeps the last provider seen and names it in a mid-stream error', () => {
+    let reply = { content: '', received: 0 }
+    reply = foldChunk(reply, { provider: 'Xiaomi', choices: [{ delta: { content: 'a' } }] })
+    reply = foldChunk(reply, { choices: [{ delta: { content: 'b' } }] })
+    assert.equal(reply.provider, 'Xiaomi')
+    assert.throws(
+      () => foldChunk(reply, { error: { code: 502, message: 'provider died' } }),
+      (err) => err instanceof CallError && err.status === 502 && err.provider === 'Xiaomi'
+    )
+  })
+
+  it('marks a stalled stream with the provider of the chunks before it', async () => {
+    const controller = new AbortController()
+    const body = (async function* () {
+      yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'GMICloud', choices: [{ delta: { content: 'a' } }] })}\n\n`)
+      await new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason)))
+    })()
+    await assert.rejects(readStream({ body }, (reason) => controller.abort(reason), 20), (err) => {
+      return err instanceof CallError && err.stalled && err.provider === 'GMICloud'
+    })
+  })
+
+  it('names the provider in the stall it reports, whatever error the runtime throws', async () => {
+    let reason
+    const body = (async function* () {
+      yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'GMICloud', choices: [{ delta: { content: 'a' } }] })}\n\n`)
+      await new Promise((_, reject) => setTimeout(() => reject(new DOMException('aborted', 'AbortError')), 60))
+    })()
+    await assert.rejects(readStream({ body }, (r) => (reason ??= r), 20))
+    assert.ok(reason instanceof CallError && reason.stalled && reason.provider === 'GMICloud')
+  })
+
+  it('takes a mid-stream error\'s provider from its metadata when the chunk does not name one', () => {
+    assert.throws(
+      () => foldChunk({ content: '', received: 0 }, { error: { code: 502, message: 'x', metadata: { provider_name: 'StreamLake' } } }),
+      (err) => err.provider === 'StreamLake' && err.inStream
+    )
+  })
+
+  it('exits 2 only when the owner must act', () => {
+    assert.equal(exitCode(Object.assign(new Error('x'), { kind: 'owner' })), 2)
+    assert.equal(exitCode(Object.assign(new Error('x'), { kind: 'retry' })), 1)
+    assert.equal(exitCode(new Error('x')), 1)
+  })
+
+  it('asks to skip providers only when there are some', () => {
+    assert.equal('provider' in requestBody({ model: 'x/y', prompt: 'p' }), false)
+    assert.equal('provider' in requestBody({ model: 'x/y', prompt: 'p', ignore: [] }), false)
+    assert.deepEqual(requestBody({ model: 'x/y', prompt: 'p', ignore: ['Xiaomi'] }).provider, { ignore: ['Xiaomi'] })
+  })
+})
+
+describe('callModel', () => {
+  const ok = () => new Response(`data: ${JSON.stringify({ model: 'm', choices: [{ delta: { content: '{}' } }] })}\n\ndata: [DONE]\n\n`, { status: 200 })
+  const fail = (status, headers = {}) => new Response(JSON.stringify({ error: { message: `status ${status}` } }), { status, headers })
+
+  /** Runs callModel against these responses (or functions making them), recording each request body and wait. */
+  async function run(...responses) {
+    return runWith({}, ...responses)
+  }
+  async function runWith(opts, ...responses) {
+    const bodies = []
+    const waits = []
+    const fetchImpl = async (url, init) => {
+      bodies.push(JSON.parse(init.body))
+      const next = responses.shift()
+      return typeof next === 'function' ? next(init) : next
+    }
+    const log = console.log
+    console.log = () => {}
+    try {
+      const result = await callModel({ key: 'k', model: 'x/y', prompt: 'p', effort: 'max', fetchImpl, sleep: async (ms) => waits.push(ms), ...opts })
+      return { result, bodies, waits }
+    } catch (error) {
+      return { error, bodies, waits }
+    } finally {
+      console.log = log
+    }
+  }
+
+  it('stops at once for the owner on a 402', async () => {
+    const { error, bodies } = await run(fail(402))
+    assert.equal(error.kind, 'owner')
+    assert.match(error.message, /out of credits/)
+    assert.equal(bodies.length, 1)
+  })
+
+  it('retries a 503 after its Retry-After', async () => {
+    const { result, bodies, waits } = await run(fail(503, { 'Retry-After': '7' }), ok())
+    assert.equal(result.choices[0].message.content, '{}')
+    assert.equal(bodies.length, 2)
+    assert.deepEqual(waits, [7000])
+  })
+
+  it('skips a provider that stalled on the next attempt', async () => {
+    const stalled = () => ({
+      ok: true,
+      status: 200,
+      body: (async function* () {
+        yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'DeepInfra', choices: [{ delta: { content: 'a' } }] })}\n\n`)
+        throw new CallError('no data from OpenRouter for 5 minutes', { stalled: true })
+      })()
+    })
+    const { result, bodies, waits } = await run(stalled, ok())
+    assert.ok(result)
+    assert.equal('provider' in bodies[0], false)
+    assert.deepEqual(bodies[1].provider, { ignore: ['DeepInfra'] })
+    assert.deepEqual(waits, [5000])
+  })
+
+  it('skips a stalled provider when the runtime throws its own AbortError', async () => {
+    const stalled = (init) => ({
+      ok: true,
+      status: 200,
+      body: (async function* () {
+        yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'Novita', choices: [{ delta: { content: 'a' } }] })}\n\n`)
+        await new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+      })()
+    })
+    const { result, bodies } = await runWith({ idleMs: 20 }, stalled, ok())
+    assert.ok(result)
+    assert.deepEqual(bodies[1].provider, { ignore: ['Novita'] })
+  })
+
+  it('skips a provider whose connection dropped partway', async () => {
+    const dropped = () => ({
+      ok: true,
+      status: 200,
+      body: (async function* () {
+        yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'Xiaomi', choices: [{ delta: { content: 'a' } }] })}\n\n`)
+        throw new TypeError('terminated')
+      })()
+    })
+    const { result, bodies } = await run(dropped, ok())
+    assert.ok(result)
+    assert.deepEqual(bodies[1].provider, { ignore: ['Xiaomi'] })
+  })
+
+  it('retries a call that hangs before any response', async () => {
+    const hung = (init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    const { result, bodies } = await runWith({ idleMs: 20 }, hung, ok())
+    assert.ok(result)
+    assert.equal(bodies.length, 2)
+  })
+
+  it('retries an error whose body hangs as a stall, not by its status', async () => {
+    const hungBody = (init) => ({
+      ok: false,
+      status: 402,
+      headers: new Headers(),
+      text: () => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    })
+    const { result, bodies, waits } = await runWith({ idleMs: 20 }, hungBody, ok())
+    assert.ok(result)
+    assert.equal(bodies.length, 2)
+    assert.deepEqual(waits, [5000])
+  })
+
+  it('caps a long Retry-After at a minute', async () => {
+    const { waits } = await run(fail(429, { 'Retry-After': '3600' }), ok())
+    assert.deepEqual(waits, [60000])
+  })
+
+  it('reads Retry-After as seconds or as a date', async () => {
+    const date = new Date(Date.now() + 30000).toUTCString()
+    const { waits } = await run(fail(429, { 'Retry-After': date }), ok())
+    assert.ok(waits[0] > 25000 && waits[0] <= 31000, String(waits[0]))
+  })
+
+  it('asks every provider again once all of them have been skipped', async () => {
+    const stalled = () => ({
+      ok: true,
+      status: 200,
+      body: (async function* () {
+        yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'Solo', choices: [{ delta: { content: 'a' } }] })}\n\n`)
+        throw new CallError('no data from OpenRouter for 5 minutes', { stalled: true })
+      })()
+    })
+    const allIgnored = new Response(JSON.stringify({ error: { code: 404, message: 'All providers have been ignored.', metadata: { failed_routing_step: 'Filter by Ignored Providers' } } }), { status: 404 })
+    const { result, bodies } = await run(stalled, allIgnored, ok())
+    assert.ok(result)
+    assert.deepEqual(bodies[1].provider, { ignore: ['Solo'] })
+    assert.equal('provider' in bodies[2], false)
+  })
+
+  it('gives up after three failures', async () => {
+    const { error, bodies, waits } = await run(fail(502), fail(502), fail(502))
+    assert.match(error.message, /^Gave up after 3 attempts: OpenRouter 502: status 502/)
+    assert.notEqual(error.kind, 'owner')
+    assert.equal(bodies.length, 3)
+    assert.deepEqual(waits, [5000, 20000])
+  })
+
+  it('does not retry a 400', async () => {
+    const { error, bodies } = await run(fail(400))
+    assert.equal(error.kind, 'fatal')
+    assert.equal(bodies.length, 1)
   })
 })
