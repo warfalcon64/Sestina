@@ -40,16 +40,15 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. `template/docs/workflow/project.md` lines 3–4 claim it is the only workflow file that names a path or a command;
-   reword it as the kit's own `project.md` does. Laze's copy needs the same line by hand.
-2. Reviewer: since the script sends a reasoning effort, MiMo reasoned on 6 of 6 runs. Decide whether every repo's
+1. Reviewer: since the script sends a reasoning effort, MiMo reasoned on 6 of 6 runs. Decide whether every repo's
    default moves from `moonshotai/kimi-k3` to it. Also a candidate: retry once when a call stalls with no data for
    5 minutes (MiMo did twice while one of its providers was degraded).
-3. Bootstrap by script: copy and generate the files with code as far as possible, with a mode that re-copies into a
+2. Bootstrap by script: copy and generate the files with code as far as possible, with a mode that re-copies into a
    repo already running the system and keeps its handoff notes and ADR rows.
-4. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
-5. Re-copy into the repos that run the system once the verbatim changes above land, so each is touched once: Campfire,
+3. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
+4. Re-copy into the repos that run the system once the verbatim changes above land, so each is touched once: Campfire,
    FTL, IAF, ISK0, Laze and WebMedTools (New), all under `~/Documents/Projects`. Each gets `.env` in `.gitignore`,
-   the script fixes and the `--key-file` wording in its `project.md`. Campfire, IAF and WebMedTools also lack c823ecd
+   the script fixes and the `--key-file` wording in its `project.md`; all but Campfire also take that file's
+   reworded opening line (the "only workflow file" claim) by hand. Campfire, IAF and WebMedTools also lack c823ecd
    (the ADR length-and-naming paragraph, "length, naming" in `project.md`, merge prep's trim line) and the handoff
    hook. IAF waits until the owner has keys.

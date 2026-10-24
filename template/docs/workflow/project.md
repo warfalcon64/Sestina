@@ -1,7 +1,8 @@
 # Project specifics for the workflow
 
-Everything the phase files defer to, for this repo. This is the only workflow file that names a path or a command,
-so it is the only one to rewrite when the kit is copied.
+Everything the phase files defer to, for this repo. This is the only workflow file that names this repo's own paths
+or commands; the phase files name only what every repo has (`docs/handoff.md`, Claude Code's plan mode, git). So it
+is the only one to rewrite when the kit is copied.
 
 - **Decision records.** `docs/adr/`, index at `docs/adr/README.md`. Read the index row before changing a subsystem it
   covers. Format, length, naming and the bar for a new one are in that README.
