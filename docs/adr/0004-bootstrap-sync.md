@@ -22,5 +22,5 @@ files and points there. The script is the kit's own and is never copied.
 ## Consequences
 A re-copy is the same command as a setup, and `--dry-run` previews either. Adding a verbatim file means adding it to
 `VERBATIM`; a test fails when a phase file or script is missing from it. A re-copy never adds a fill-in file the repo
-lacks, so a deferred map stays deferred. Prose a repo added to a verbatim file (FTL's ADR index paragraph) is replaced:
-it shows in `git diff`, and keeping it means proposing it to the kit.
+lacks, so a deferred map stays deferred. Prose a repo added to a verbatim file is replaced: it
+shows in `git diff`, and keeping it means proposing it to the kit, as FTL's record-format line was.

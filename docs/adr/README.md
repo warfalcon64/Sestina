@@ -14,6 +14,9 @@ decision is reversed, rewrite that record under its own number with the old appr
 is what stops the old idea coming back); when it stops applying at all, delete the file and its row. Git keeps history.
 Read the row you need here before changing a subsystem, and open the file only if the row is not enough.
 
+Each record is `NNNN-<topic>.md` with a `Date:` line and three sections: Context (include the rejected approach in one
+sentence), Decision (with file pointers), Consequences (what it forbids and costs).
+
 | # | Decision | Gist |
 |---|---|---|
 | 0001 | [The kit runs its own system at the root; only fill-in templates live in template/](0001-kit-layout.md) | Verbatim files live once at the root and are edited there; `template/` holds only placeholder files; the kit's own records are never copied. |

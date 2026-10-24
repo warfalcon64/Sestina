@@ -49,6 +49,5 @@ Each item is its own change and starts at phase 1 (brainstorm), not at the code.
    FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
    `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
    `.gitignore` lines. By hand, in each `project.md`: the `--key-file` wording and the exit-2 lines; all but Campfire
-   the reworded opening line (the "only workflow file" claim); Campfire, IAF and WebMedTools "length, naming". FTL's
-   ADR index has an extra format paragraph the sync replaces: fold it into the kit first or let it go. IAF waits until
-   the owner has keys.
+   the reworded opening line (the "only workflow file" claim); Campfire, IAF and WebMedTools "length, naming". IAF
+   waits until the owner has keys.
