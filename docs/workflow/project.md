@@ -15,9 +15,9 @@ is never copied: a repo fills in `template/docs/workflow/project.md` instead.
   `--base main` reviews a branch, `--model <id>` picks a stronger reviewer, `--effort <level>` sets how hard it
   thinks (default `max`; a run that reports no reasoning, or does not say, prints a warning), `--dry-run`
   prints the file list and token estimate without calling the API, and `--max-tokens <n>` refuses a pack bigger than
-  that. It needs Node 18+ and `OPENROUTER_API_KEY` (or `--key-file <path>`). Pass
-  `--focus "<what the change is and where to look>"`: a focused run finds what an unfocused one misses. Its own
-  tests: `node --test scripts/peer-review.test.mjs`.
+  that. It needs Node 18+ and `OPENROUTER_API_KEY`, or `--key-file <path>` to a file holding
+  the key alone, as JSON, or as a `.env` line. Pass `--focus "<what the change is and where to look>"`: a focused
+  run finds what an unfocused one misses. Its own tests: `node --test scripts/peer-review.test.mjs`.
   Every repo copies this kit, so a bug here ships to all of them: once the lead and the owner agree the change is
   stable, review it again after each round of fixes, until a round comes back with no confirmed findings.
   The kit passes `--model xiaomi/mimo-v2.6-pro`: on this repo's first restructure it matched `moonshotai/kimi-k3`,

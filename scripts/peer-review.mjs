@@ -12,8 +12,9 @@
  *   node scripts/peer-review.mjs --dry-run           print the pack size and file list, call nothing
  *   node scripts/peer-review.mjs --max-tokens <n>    refuse to send a pack bigger than this (default 400000)
  *
- * The OpenRouter key comes from OPENROUTER_API_KEY, or from --key-file: a file holding the key alone, or JSON with
- * an `openrouterApiKey` field. Findings are advisory: check every one against the code and give it a verdict.
+ * The OpenRouter key comes from OPENROUTER_API_KEY, or from --key-file: a file holding the key alone, JSON with an
+ * `openrouterApiKey` field, or a `.env`-style `OPENROUTER_API_KEY=` line. Findings are advisory: check every one
+ * against the code and give it a verdict.
  *
  * The reply is streamed, so a reviewer that thinks for many minutes never leaves the connection idle (an idle request
  * gets dropped on the way), and a progress line prints every minute while it works.
@@ -347,7 +348,10 @@ Never report style, naming, formatting or preference. Never praise. Never restat
 Answer with JSON only, no prose and no code fences:
 {"summary": "one or two sentences", "findings": [{"file": "path", "line": 0, "severity": "high|medium|low", "claim": "what is wrong", "scenario": "the case where it breaks", "confidence": 0.0}]}`
 
-/** A key file holds the key alone, or JSON with an `openrouterApiKey` field. */
+/**
+ * A key file holds the key alone, JSON with an `openrouterApiKey` field, or a `.env`-style `OPENROUTER_API_KEY=` line
+ * (`export`, quotes and a trailing ` # comment` each optional); the first such line wins.
+ */
 export function keyFromFileText(text) {
   const trimmed = String(text ?? '').trim()
   if (!trimmed) return ''
@@ -359,7 +363,16 @@ export function keyFromFileText(text) {
       return ''
     }
   }
-  return /\s/.test(trimmed) ? '' : trimmed
+  for (const line of trimmed.split(/\r?\n/)) {
+    const match = /^\s*(?:export\s+)?OPENROUTER_API_KEY\s*=\s*(.*)$/.exec(line)
+    if (!match) continue
+    const value = match[1].trim()
+    const quoted = /^(?:"([^"]*)"|'([^']*)')(?:\s+#.*)?$/.exec(value)
+    if (quoted) return quoted[1] ?? quoted[2]
+    if (/^["']/.test(value)) return ''
+    return value.replace(/(?:^|\s)#.*$/, '').trim()
+  }
+  return /[\s=]/.test(trimmed) ? '' : trimmed
 }
 
 function readKey(keyFile) {
@@ -558,7 +571,7 @@ async function main() {
 
   const key = readKey(opts.keyFile)
   if (!key) {
-    console.error('No API key. Set OPENROUTER_API_KEY, or pass --key-file <file holding the key, or JSON with openrouterApiKey>.')
+    console.error('No API key. Set OPENROUTER_API_KEY, or pass --key-file <file holding the key, JSON with openrouterApiKey, or an OPENROUTER_API_KEY= line>.')
     process.exitCode = 1
     return
   }

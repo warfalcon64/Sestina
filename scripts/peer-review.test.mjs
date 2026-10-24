@@ -146,6 +146,20 @@ describe('keyFromFileText', () => {
     assert.equal(keyFromFileText('two words'), '')
     assert.equal(keyFromFileText(''), '')
   })
+
+  it('reads an OPENROUTER_API_KEY line from a .env-style file', () => {
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY = sk-or-abc\n'), 'sk-or-abc')
+    assert.equal(keyFromFileText('export OPENROUTER_API_KEY="sk-or-abc"'), 'sk-or-abc')
+    assert.equal(keyFromFileText("OPENROUTER_API_KEY='sk-or-abc'"), 'sk-or-abc')
+    assert.equal(keyFromFileText('# keys\r\nOTHER_KEY=1\r\nOPENROUTER_API_KEY=sk-or-abc\r\n'), 'sk-or-abc')
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY=sk-or-abc # note'), 'sk-or-abc')
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY="sk-or-abc" # note'), 'sk-or-abc')
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY='), '')
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY= # set me'), '')
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY="sk-or-abc'), '')
+    assert.equal(keyFromFileText('OPENROUTER_API_KEY="sk-or-abc" "sk-or-xyz"'), '')
+    assert.equal(keyFromFileText('OTHER=x'), '')
+  })
 })
 
 describe('buildPack', () => {
