@@ -16,4 +16,5 @@ Read the row you need here before changing a subsystem, and open the file only i
 
 | # | Decision | Gist |
 |---|---|---|
-| 0001 | [<Title as a sentence>](0001-<topic>.md) | <One line: the rule, and what it forbids.> |
+| 0001 | [The kit runs its own system at the root; only fill-in templates live in template/](0001-kit-layout.md) | Verbatim files live once at the root and are edited there; `template/` holds only placeholder files; the kit's own records are never copied. |
+| 0002 | [Records stay under 400 words and are named by topic](0002-adr-length-naming.md) | Under 400 words, counted in words; file name is number plus a 2–4 word topic, never the title. |

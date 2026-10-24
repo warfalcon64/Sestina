@@ -14,11 +14,16 @@ a scratch file for the change in progress, and a workflow that says when each fi
 | `docs/handoff.md` | the scratchpad | where the change in progress stands, and what the owner chose on the way | every reply worth keeping; header only after the commit |
 | `docs/workflow/` | the how | what each phase of a change requires | rarely; `project.md` when a command or path changes |
 
-Copied verbatim, no edits needed: `docs/workflow/01-06*.md`, `docs/workflow/README.md`, `docs/handoff.md`,
-`scripts/peer-review.mjs`, `scripts/handoff-hook.mjs`, their tests and `.claude/settings.json`. The two scripts are
-the only pieces with a runtime (Node 18+, nothing to install) and are optional; the rest is plain Markdown for a repo
-in any language. Written fresh per repo: everything else. The templates here keep the wording of the rules and replace
-every fact with an `<angle-bracket>` placeholder; a placeholder left in place is a bug.
+Copied verbatim, no edits needed: the files at the kit's root that the system runs on, namely
+`docs/workflow/README.md` and `01-06*.md`, the header of `docs/handoff.md`, the prose of `docs/adr/README.md`,
+`scripts/peer-review.mjs`, `scripts/handoff-hook.mjs`, their tests and `.claude/settings.json`; BOOTSTRAP §2 says how
+each is copied into a new repo. Its commands overwrite, so in a repo that already runs the system these two are
+re-copied by hand: replace the header and the prose, and keep the repo's own notes and rows. The two scripts are the
+only pieces with a runtime (Node 18+, nothing to install) and are optional; the rest is plain Markdown for a repo in
+any language. Written fresh per repo: everything under `template/`, whose files keep the wording of the rules and
+replace every fact with an `<angle-bracket>` placeholder; a placeholder left in place is a bug. The kit runs the
+system on itself, so its root CLAUDE.md, `docs/workflow/project.md` and `docs/adr/` records are its own and never
+copied.
 
 ## The rules that make it work
 

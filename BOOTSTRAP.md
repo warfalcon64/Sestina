@@ -27,18 +27,29 @@ The system leans on these. Where one is false, fix it first or the docs describe
 ## 2. Copy
 
 ```
-cp -r <kit>/docs <repo>/docs
+cp -r <kit>/template/. <repo>/               # overwrites same-named files: merge any the repo has by hand
+mkdir -p <repo>/docs/workflow <repo>/docs/adr <repo>/scripts <repo>/.claude
+cp <kit>/docs/workflow/README.md <kit>/docs/workflow/0[1-6]-*.md <repo>/docs/workflow/
+sed '/^## /,$d' <kit>/docs/handoff.md > <repo>/docs/handoff.md   # the header, without the kit's notes
+cp <kit>/docs/adr/README.md <repo>/docs/adr/
 cp <kit>/scripts/peer-review.mjs <kit>/scripts/peer-review.test.mjs <repo>/scripts/
 cp <kit>/scripts/handoff-hook.mjs <kit>/scripts/handoff-hook.test.mjs <repo>/scripts/
-cp -r <kit>/.claude <repo>/.claude           # or merge its hooks into an existing settings.json
-cp <kit>/CLAUDE.md <repo>/CLAUDE.md          # or merge into an existing one, keeping its facts
+cp <kit>/.claude/settings.json <repo>/.claude/   # or merge its hooks into an existing settings.json
 ```
 
-Add `.peer-review/` and `.claude/handoff/` to `.gitignore`. Claude Code holds back a repo's hooks until its
-workspace trust prompt is accepted, and loads them when a session starts; `node --test scripts/handoff-hook.test.mjs`
-runs the hook's tests. The review runs as `node scripts/peer-review.mjs` from anywhere in the repo,
-including one with no commits yet, and its tests as `node --test scripts/peer-review.test.mjs`. Without Node, skip
-the four script files and `.claude/settings.json`; nothing else in the kit needs it.
+`template/` holds only the files a repo fills in; the rest is copied verbatim from the kit's root, which runs the
+system on itself. The `template/` line overwrites CLAUDE.md and the four docs to fill; a repo that already has any
+of them merges them by hand, keeping their facts. The handoff is cut at its first `## ` line, where the hook puts the
+start of the notes, so a change in progress in the kit is not carried over. The copied `docs/adr/README.md` still
+holds the kit's rows; they show a row's shape until step 3.2 replaces them. Copy only `.claude/settings.json`: the
+rest of the kit's `.claude/` is its own session records.
+
+Add `.peer-review/`, `.claude/handoff/` and `.env` (where a key file would sit) to `.gitignore`. Claude Code holds
+back a repo's hooks until its workspace trust prompt is accepted, and loads them when a session starts;
+`node --test scripts/handoff-hook.test.mjs` runs the hook's tests. The review runs as `node scripts/peer-review.mjs`
+from anywhere in the repo, including one with no commits yet, and its tests as
+`node --test scripts/peer-review.test.mjs`. Without Node, skip the four script files and `.claude/settings.json`;
+nothing else in the kit needs it.
 
 ## 3. Fill, in this order
 
@@ -51,7 +62,8 @@ session will trust it.
 2. **`docs/adr/`.** Walk the code for decisions that a fresh session would plausibly undo: a dependency chosen over
    the obvious one, a layer that may not import another, a thing deliberately not done. Ask the owner for the ones
    the code cannot show (what was tried and abandoned). Write those, and only those, with `0001-template.md` as the
-   shape. Five to ten records is a normal start; forty is the ceiling. Delete the template file.
+   shape. Five to ten records is a normal start; forty is the ceiling. Replace the kit's rows in the index with one
+   row per record, and delete the template file.
 3. **`CLAUDE.md`.** Commands from step 1; rules from step 2, each ending with its ADR number; the docs section as
    given; "Next up" from the owner. If a rule has no ADR behind it, either write the ADR now or leave the rule out.
 4. **`docs/architecture.md`.** The layer table and import rules first, then one section per subsystem that matters,
