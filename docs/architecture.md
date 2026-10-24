@@ -1,6 +1,6 @@
 # Architecture
 
-The shape of the app, not its contents: the code is the source of truth, and this page is here so you know which file
+The shape of the code, not its contents: the code is the source of truth, and this page is here so you know which file
 to open. Why things are this way lives in `docs/adr/`; terms are defined in `docs/glossary.md`.
 
 ## Processes and layers

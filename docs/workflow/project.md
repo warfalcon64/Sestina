@@ -17,6 +17,6 @@ so it is the only one to rewrite when the kit is copied.
   verdict list says no outside model reviewed it.>
 - **Real checks.** <What tests cannot see and how it is checked for real: a prompt change needs a real model call, a
   UI change needs a screenshot, a migration needs an old file. Name the command for each.>
-- **Data.** <Where the app writes, how it is read back, and what an added field needs so old files still load. Delete
-  this line if the project keeps no data.>
+- **Data.** <Where the project writes, how it is read back, and what an added field needs so old files still load.
+  Delete this line if the project keeps no data.>
 - **Commits.** The owner commits. Never commit without being asked.

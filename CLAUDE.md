@@ -1,11 +1,11 @@
 # <Project> — notes for Claude Code
 
-<One line: what the app is and the stack. Two at most.>
+<One line: what the project is and the stack. Two at most.>
 
 ## Commands
 - `<dev>`, `<test>`, `<typecheck>`, `<build>`.
 - <Any command that costs money or minutes, with when to run it and when not to.>
-- <How the running app is verified without a person: the command, and what to look at.>
+- <How the project's real output is checked without a person: the command, and what to look at.>
 
 ## Rules
 - <One line per rule that a fresh session would otherwise break, each ending with the ADR that decided it. Ten to
@@ -17,7 +17,7 @@
 ## Docs
 - `docs/handoff.md` — read first: notes on the change in progress, kept current as it goes. Its header holds the
   rules.
-- `docs/architecture.md` — the shape of the app and which file to open. Read before working in an unfamiliar
+- `docs/architecture.md` — the shape of the code and which file to open. Read before working in an unfamiliar
   subsystem; update it when structure moves.
 - `docs/adr/README.md` — index of architecture decision records, one row each. Read the row before changing a
   subsystem it covers; open the file when the row is not enough.

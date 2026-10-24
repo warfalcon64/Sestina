@@ -1,8 +1,8 @@
 # Documentation system kit
 
-The shape of Campfire's docs, without Campfire's contents. Copy it into a repo, then follow BOOTSTRAP.md. The
-system is five files with one job each, a scratch file for the change in progress, and a workflow that says when each
-file is touched.
+A documentation system and change workflow for any repo that Claude Code sessions work in: the shape of the docs,
+with no project's contents. Copy it into a repo, then follow BOOTSTRAP.md. The system is five files with one job each,
+a scratch file for the change in progress, and a workflow that says when each file is touched.
 
 | File | Job | Answers | Touched when |
 |---|---|---|---|

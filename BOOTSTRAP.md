@@ -69,8 +69,10 @@ size is sane before the first paid review.
 
 ## 5. What not to carry over
 
-- **Campfire's rules.** Nothing about narrators, engines, providers or emoji applies anywhere else. If a rule reads
-  as sensible for the new project, it still needs its own ADR with the new project's context.
+From another repo that already runs the system, take only what this kit holds. In particular, not:
+
+- **Its rules.** They were decided for that project. If one reads as sensible for the new project, it still needs its
+  own ADR with the new project's context.
 - **Its ADR numbers.** Start at 0001. A record that says "see ADR 0021" from another repo is a broken pointer.
 - **Its "Next up".** That paragraph is the most perishable line in the system; it is rewritten every merge prep and
   must be true on the day it is read.

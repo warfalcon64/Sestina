@@ -6,7 +6,7 @@
 
 **Steps**
 1. Run the peer-review script on the uncommitted diff, with a model from a different family than the author's
-   (command and defaults in project.md). Use a stronger model for a change that touches money, data or the turn path.
+   (command and defaults in project.md). Use a stronger model for a change that touches money, data or the core path.
 2. While it runs, review the diff yourself. Your own reading is the primary review; the outside model is a second
    pair of eyes, not an authority.
 3. Check **every** finding against the actual code before acting on it. Outside models hallucinate call sites,
