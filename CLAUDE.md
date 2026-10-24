@@ -47,7 +47,7 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
 1. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy:
-   Campfire, FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
+   Campfire, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
    `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
    `.gitignore` lines. By hand, in each `project.md`: the `--key-file` wording and the exit-2 lines; all but Campfire
    the reworded opening line (the "only workflow file" claim); Campfire, IAF and WebMedTools "length, naming". IAF
