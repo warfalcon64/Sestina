@@ -6,7 +6,7 @@
 
 **Steps**
 1. State which decision records the work adds, rewrites or leaves alone — often none — and write them now, in the
-   same change (see project.md for the path and format).
+   same change (see project.md for the path, format and length). Trim any record the work pushed past that length.
 2. Update the structural docs that the change made stale: the architecture map, the glossary when you coined a term,
    the spec note when something planned got built.
 3. Delete what stopped being true. Git keeps the history; a stale line in a doc costs every future session. Wipe

@@ -4,7 +4,7 @@ Everything the phase files defer to, for this repo. This is the only workflow fi
 so it is the only one to rewrite when the kit is copied.
 
 - **Decision records.** `docs/adr/`, index at `docs/adr/README.md`. Read the index row before changing a subsystem it
-  covers. Format and the bar for a new one are in that README.
+  covers. Format, length, naming and the bar for a new one are in that README.
 - **Structural docs.** `CLAUDE.md` (rules and commands), `docs/architecture.md` (the map), `docs/glossary.md`
   (terms), `docs/spec.md` (design for what is not built; built work collapses to a `**Built.**` note).
 - **Checks.** `<typecheck command>` and `<test command>` must pass before implementation ends.

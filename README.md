@@ -30,7 +30,8 @@ These are what a session is actually following. The files are just where the rul
    is an opinion: write the record or drop the rule. Keep it short enough to read every session.
 3. **An ADR is a live decision, not a diary.** Edit in place when refined; rewrite under the same number when
    reversed, with the old approach folded into Context; delete when it stops applying. The bar for a new one: a later
-   session could plausibly undo this and nothing in the code would tell them not to.
+   session could plausibly undo this and nothing in the code would tell them not to. Length and naming are in
+   `docs/adr/README.md`.
 4. **The spec only holds what is not built.** When a section ships, it collapses to a `**Built.**` note and the
    reasoning moves to an ADR. Section numbers are referenced from code and ADRs, so they are never renumbered.
 5. **Delete what stopped being true.** Git keeps history; a stale line costs every future session.
