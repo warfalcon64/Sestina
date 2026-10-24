@@ -27,29 +27,26 @@ The system leans on these. Where one is false, fix it first or the docs describe
 ## 2. Copy
 
 ```
-cp -r <kit>/template/. <repo>/               # overwrites same-named files: merge any the repo has by hand
-mkdir -p <repo>/docs/workflow <repo>/docs/adr <repo>/scripts <repo>/.claude
-cp <kit>/docs/workflow/README.md <kit>/docs/workflow/0[1-6]-*.md <repo>/docs/workflow/
-sed '/^## /,$d' <kit>/docs/handoff.md > <repo>/docs/handoff.md   # the header, without the kit's notes
-cp <kit>/docs/adr/README.md <repo>/docs/adr/
-cp <kit>/scripts/peer-review.mjs <kit>/scripts/peer-review.test.mjs <repo>/scripts/
-cp <kit>/scripts/handoff-hook.mjs <kit>/scripts/handoff-hook.test.mjs <repo>/scripts/
-cp <kit>/.claude/settings.json <repo>/.claude/   # or merge its hooks into an existing settings.json
+node <kit>/scripts/bootstrap.mjs <repo> --dry-run   # what it would do, writing nothing
+node <kit>/scripts/bootstrap.mjs <repo>
 ```
 
-`template/` holds only the files a repo fills in; the rest is copied verbatim from the kit's root, which runs the
-system on itself. The `template/` line overwrites CLAUDE.md and the four docs to fill; a repo that already has any
-of them merges them by hand, keeping their facts. The handoff is cut at its first `## ` line, where the hook puts the
-start of the notes, so a change in progress in the kit is not carried over. The copied `docs/adr/README.md` still
-holds the kit's rows; they show a row's shape until step 3.2 replaces them. Copy only `.claude/settings.json`: the
-rest of the kit's `.claude/` is its own session records.
+The same command sets up a new repo and re-copies into one that already runs the system; it prints one line per
+file, and a file it cannot merge safely is left untouched and reported for a merge by hand. The verbatim files are
+overwritten from the kit's root, which runs the system on itself. The handoff gets the kit's header and keeps the
+repo's notes (never the kit's), or is reported for a merge by hand when the text above its first `## ` heading does
+not end with the header's last line. The ADR index gets the kit's prose and keeps the repo's table, or where the
+repo has no index the kit's rows, which show a row's shape until step 3.2 replaces them. The kit's hooks are merged
+into `.claude/settings.json` beside any others, and `.peer-review/`, `.claude/handoff/` and `.env` (where a key file
+would sit) are added to `.gitignore`. The files under `template/` are copied only while the repo has no
+`docs/workflow/project.md`, and never over a file it already has: CLAUDE.md, say, is reported for a merge by hand,
+keeping its facts.
 
-Add `.peer-review/`, `.claude/handoff/` and `.env` (where a key file would sit) to `.gitignore`. Claude Code holds
-back a repo's hooks until its workspace trust prompt is accepted, and loads them when a session starts;
-`node --test scripts/handoff-hook.test.mjs` runs the hook's tests. The review runs as `node scripts/peer-review.mjs`
-from anywhere in the repo, including one with no commits yet, and its tests as
-`node --test scripts/peer-review.test.mjs`. Without Node, skip the four script files and `.claude/settings.json`;
-nothing else in the kit needs it.
+Claude Code holds back a repo's hooks until its workspace trust prompt is accepted, and loads them when a session
+starts; `node --test scripts/handoff-hook.test.mjs` runs the hook's tests. The review runs as
+`node scripts/peer-review.mjs` from anywhere in the repo, including one with no commits yet, and its tests as
+`node --test scripts/peer-review.test.mjs`. Without Node in the repo, pass `--no-node`: it skips the four script
+files, the hooks and the two ignore lines they need (`.env` is still added), and nothing else in the kit needs Node.
 
 ## 3. Fill, in this order
 

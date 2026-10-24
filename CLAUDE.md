@@ -1,18 +1,22 @@
 # doc-system-kit — notes for Claude Code
 
-The documentation system and six-phase workflow that other repos copy: Markdown plus two dependency-free Node 18
+The documentation system and six-phase workflow that other repos copy: Markdown plus three dependency-free Node 18
 scripts.
 
 ## Commands
-- `node --test scripts/*.test.mjs`: both suites, and each imports its script, so a syntax error fails it.
+- `node --test scripts/*.test.mjs`: all three suites, and each imports its script, so a syntax error fails it.
+- `node scripts/bootstrap.mjs <repo> [--dry-run] [--no-node]` sets the system up in a repo or re-copies it; it writes
+  outside the kit, so dry-run first and get the owner's OK. ADR 0004.
 - `node scripts/peer-review.mjs --key-file .env` costs money; run it in phase 4, not before. Exit 2 means OpenRouter
   needs the owner. ADR 0003 says why the default reviewer is MiMo.
 - `echo '{"session_id":"t","cwd":"."}' | node scripts/handoff-hook.mjs session-start` shows what a session in the kit
   is handed. Delete `.claude/handoff/t.json` afterwards.
 
 ## Rules
-- Verbatim files (README.md lists them) are edited at the root and nowhere else; fill-in templates live only under
-  `template/`; the root's own files never hold placeholders. ADR 0001.
+- Verbatim files (`VERBATIM` in `scripts/bootstrap.mjs` lists them) are edited at the root and nowhere else; fill-in
+  templates live only under `template/`; the root's own files never hold placeholders. ADR 0001.
+- A new verbatim file goes into `VERBATIM`; the sync never gains a mode flag, and hands back what it cannot merge
+  safely rather than overwriting it. ADR 0004.
 - A record stays under 400 words and is named by its number and a topic, not its title. ADR 0002.
 
 ## Docs
@@ -20,8 +24,9 @@ scripts.
   rules.
 - `docs/adr/README.md` — index of architecture decision records, one row each. Read the row before changing a
   subsystem it covers; open the file when the row is not enough.
-- The map and glossary are not written yet: README.md describes the system and BOOTSTRAP.md how it is copied. They
-  start when the scripts grow past two.
+- `docs/architecture.md` — which file to open: the layers (what is copied and how), the scripts, the sync's flow.
+  Update it when structure moves. README.md describes the system and BOOTSTRAP.md how it is copied.
+- `docs/glossary.md` — what our words mean. Add a term when you coin one.
 - No spec yet; "Next up" is the backlog.
 - `docs/workflow/` — the six phases every change walks, one file each. See below.
 
@@ -39,12 +44,11 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Bootstrap by script: copy and generate the files with code as far as possible, with a mode that re-copies into a
-   repo already running the system and keeps its handoff notes and ADR rows.
-2. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
-3. Re-copy into the repos that run the system once the verbatim changes above land, so each is touched once: Campfire,
-   FTL, IAF, ISK0, Laze and WebMedTools (New), all under `~/Documents/Projects`. Each gets `.env` in `.gitignore`,
-   the script fixes, and in its `project.md` the `--key-file` wording and the exit-2 lines; all but Campfire also
-   take that file's reworded opening line (the "only workflow file" claim) by hand. Campfire, IAF and WebMedTools
-   also lack c823ecd (the ADR length-and-naming paragraph, "length, naming" in `project.md`, merge prep's trim line)
-   and the handoff hook. IAF waits until the owner has keys.
+1. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
+2. Re-copy into the repos that run the system once the verbatim changes above land, so each is touched once: Campfire,
+   FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
+   `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
+   `.gitignore` lines. By hand, in each `project.md`: the `--key-file` wording and the exit-2 lines; all but Campfire
+   the reworded opening line (the "only workflow file" claim); Campfire, IAF and WebMedTools "length, naming". FTL's
+   ADR index has an extra format paragraph the sync replaces: fold it into the kit first or let it go. IAF waits until
+   the owner has keys.
