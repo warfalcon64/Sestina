@@ -8,6 +8,7 @@
  *   node scripts/peer-review.mjs                     review the working tree against HEAD (everything, before a first commit)
  *   node scripts/peer-review.mjs --base main         review a branch
  *   node scripts/peer-review.mjs --model <id>        a stronger reviewer for an important change
+ *   node scripts/peer-review.mjs --effort <level>    how hard the reviewer thinks (default max; none turns it off)
  *   node scripts/peer-review.mjs --dry-run           print the pack size and file list, call nothing
  *   node scripts/peer-review.mjs --max-tokens <n>    refuse to send a pack bigger than this (default 400000)
  *
@@ -24,6 +25,10 @@ import { join, resolve } from 'node:path'
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const DEFAULT_MODEL = process.env.PEER_REVIEW_MODEL ?? 'moonshotai/kimi-k3'
+/** Sent on every call: some models only think when asked, and max is kimi-k3's own default (`enabled` alone means medium). */
+const DEFAULT_EFFORT = 'max'
+/** OpenRouter's reasoning levels; it maps one a model lacks to the nearest it has. */
+const EFFORTS = new Set(['max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none'])
 const TIMEOUT_MS = 30 * 60 * 1000
 /** Nothing at all from OpenRouter for this long (it sends keep-alive comments while a model thinks) means the call is dead. */
 const IDLE_MS = 5 * 60 * 1000
@@ -109,17 +114,17 @@ export function estimateTokens(text) {
   return Math.ceil(text.length / 4)
 }
 
-const VALUE_FLAGS = new Set(['--base', '--model', '--focus', '--max-file-kb', '--max-tokens', '--key-file'])
+const VALUE_FLAGS = new Set(['--base', '--model', '--effort', '--focus', '--max-file-kb', '--max-tokens', '--key-file'])
 
 export const USAGE =
-  'usage: node scripts/peer-review.mjs [--base <ref>] [--model <id>] [--focus "<text>"] [--max-file-kb <n>] [--max-tokens <n>] [--key-file <path>] [--dry-run]'
+  'usage: node scripts/peer-review.mjs [--base <ref>] [--model <id>] [--effort <level>] [--focus "<text>"] [--max-file-kb <n>] [--max-tokens <n>] [--key-file <path>] [--dry-run]'
 
 /**
  * Both `--flag value` and `--flag=value` are accepted. Anything unrecognised, and any value flag left without a
  * value, lands in `unknown` rather than being dropped: a typo must not quietly review the wrong thing.
  */
 export function parseArgs(argv) {
-  const out = { base: 'HEAD', model: DEFAULT_MODEL, focus: '', dryRun: false, maxFileKb: 120, maxTokens: 400000, keyFile: '', unknown: [] }
+  const out = { base: 'HEAD', model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, focus: '', dryRun: false, maxFileKb: 120, maxTokens: 400000, keyFile: '', unknown: [] }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     const eq = arg.indexOf('=')
@@ -137,6 +142,10 @@ export function parseArgs(argv) {
     }
     if (flag === '--base') out.base = value
     else if (flag === '--model') out.model = value
+    else if (flag === '--effort') {
+      if (EFFORTS.has(value)) out.effort = value
+      else out.unknown.push(`--effort ${value}`)
+    }
     else if (flag === '--focus') out.focus = value
     else if (flag === '--max-file-kb') out.maxFileKb = Number(value) || out.maxFileKb
     else if (flag === '--max-tokens') out.maxTokens = Number(value) || out.maxTokens
@@ -419,17 +428,34 @@ async function readStream(res, abort) {
   return { model: reply.model, usage: reply.usage, choices: [{ message: { content: reply.content } }] }
 }
 
-async function callModel({ key, model, prompt }) {
-  const body = JSON.stringify({
+/** The request OpenRouter is sent: a streamed JSON reply, its usage, and how hard to think. */
+export function requestBody({ model, prompt, effort = DEFAULT_EFFORT }) {
+  return {
     model,
     messages: [
       { role: 'system', content: SYSTEM },
       { role: 'user', content: prompt }
     ],
     response_format: { type: 'json_object' },
+    reasoning: { effort },
     stream: true,
     usage: { include: true }
-  })
+  }
+}
+
+/** A warning when a reviewer asked to think reports that it did not, or does not say; '' when it reasoned. */
+export function reasoningNote(usage, effort) {
+  const tokens = usage?.completion_tokens_details?.reasoning_tokens
+  if (effort === 'none' || tokens > 0) return ''
+  if (typeof tokens !== 'number') return 'The reply did not say whether the reviewer reasoned, so this run cannot show that it did.'
+  return (
+    'The reviewer did not reason (0 reasoning tokens): treat this run as no review, and run it again. ' +
+    'A model that cannot reason always reports 0; pass --effort none for it.'
+  )
+}
+
+async function callModel({ key, model, prompt, effort }) {
+  const body = JSON.stringify(requestBody({ model, prompt, effort }))
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController()
     const abort = (reason) => controller.abort(reason)
@@ -524,7 +550,8 @@ async function main() {
     return
   }
   console.log(`Asking ${opts.model}…`)
-  const response = await callModel({ key, model: opts.model, prompt: pack.text })
+  const response = await callModel({ key, model: opts.model, prompt: pack.text, effort: opts.effort })
+  const note = reasoningNote(response?.usage, opts.effort)
   const text = response?.choices?.[0]?.message?.content ?? ''
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const parsed = extractJson(text)
@@ -536,14 +563,16 @@ async function main() {
     const rawFile = join(OUT_DIR, `${stamp}.raw.txt`)
     writeFileSync(rawFile, text || '')
     console.log(`\nSaved the raw reply to ${rawFile}`)
+    if (note) console.log(`\n${note}`)
     return
   }
   const review = normalizeReview(parsed)
   printReview(review, { model: response?.model ?? opts.model, usage: response?.usage })
+  if (note) console.log(`\n${note}`)
 
   mkdirSync(OUT_DIR, { recursive: true })
   const file = join(OUT_DIR, `${stamp}.json`)
-  writeFileSync(file, JSON.stringify({ base: pack.base, model: response?.model ?? opts.model, usage: response?.usage ?? null, ...review }, null, 2))
+  writeFileSync(file, JSON.stringify({ base: pack.base, model: response?.model ?? opts.model, effort: opts.effort, usage: response?.usage ?? null, ...review }, null, 2))
   console.log(`\nSaved to ${file}`)
 }
 

@@ -15,6 +15,8 @@ import {
   looksBinary,
   normalizeReview,
   parseArgs,
+  reasoningNote,
+  requestBody,
   sseData
 } from './peer-review.mjs'
 
@@ -98,6 +100,13 @@ describe('cli helpers', () => {
       parseArgs(['--base', 'main', '--model', 'x/y', '--focus', 'undo', '--dry-run', '--max-file-kb', '40', '--max-tokens', '50000']),
       { base: 'main', model: 'x/y', focus: 'undo', dryRun: true, maxFileKb: 40, maxTokens: 50000, unknown: [] }
     )
+  })
+
+  it('asks for max reasoning unless --effort names another level', () => {
+    assertSubset(parseArgs([]), { effort: 'max' })
+    assertSubset(parseArgs(['--effort', 'high']), { effort: 'high', unknown: [] })
+    assertSubset(parseArgs(['--effort=low']), { effort: 'low', unknown: [] })
+    assertSubset(parseArgs(['--effort', 'maximum']), { effort: 'max', unknown: ['--effort maximum'] })
   })
 
   it('accepts the --flag=value form', () => {
@@ -221,6 +230,32 @@ describe('buildPack', () => {
     inFreshRepo(() => {
       assert.throws(() => buildPack({ base: 'no-such-branch', maxFileKb: 120, focus: '' }), /Unknown base "no-such-branch"/)
     })
+  })
+})
+
+describe('reasoning', () => {
+  it('asks for the effort in a streamed JSON request', () => {
+    assertSubset(requestBody({ model: 'x/y', prompt: 'p', effort: 'high' }), {
+      model: 'x/y',
+      reasoning: { effort: 'high' },
+      response_format: { type: 'json_object' },
+      stream: true,
+      usage: { include: true }
+    })
+  })
+
+  it('asks for max when no effort is passed on', () => {
+    assertSubset(requestBody({ model: 'x/y', prompt: 'p' }), { reasoning: { effort: 'max' } })
+  })
+
+  it('warns when a reviewer asked to reason reports no reasoning tokens, or does not say', () => {
+    const usage = (reasoning_tokens) => ({ completion_tokens_details: { reasoning_tokens } })
+    assert.match(reasoningNote(usage(0), 'max'), /did not reason.*--effort none/)
+    assert.equal(reasoningNote(usage(18882), 'max'), '')
+    assert.match(reasoningNote({ completion_tokens: 60 }, 'max'), /did not say/)
+    assert.match(reasoningNote(undefined, 'max'), /did not say/)
+    assert.equal(reasoningNote(usage(0), 'none'), '')
+    assert.equal(reasoningNote(undefined, 'none'), '')
   })
 })
 

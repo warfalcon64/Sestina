@@ -39,13 +39,14 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. `scripts/peer-review.mjs` drops a streamed reply's last `data:` line when no newline follows it: `readStream`
-   never flushes `tail` or the decoder after its loop. Fix with a test. Then, as a second change, let `--key-file`
-   read a `KEY=value` file such as `.env`.
+1. Unpark the stream tail flush: `git stash pop` (the stash named "stream tail flush"), then rerun its MiMo review.
+   The fix and its five tests are done; only a clean round that reasoned is left. Then, as its own change, let
+   `--key-file` read a `KEY=value` file such as `.env`.
 2. `template/docs/workflow/project.md` lines 3–4 claim it is the only workflow file that names a path or a command;
    reword it as the kit's own `project.md` does. Laze's copy needs the same line by hand.
-3. The script's default reviewer is still `moonshotai/kimi-k3`; the kit itself now uses `xiaomi/mimo-v2.6-pro`. Decide
-   whether every repo's default moves too, once MiMo has reviewed a code diff here (item 1 is one).
+3. Reviewer: since the script sends a reasoning effort, MiMo reasoned on 6 of 6 runs. Decide whether every repo's
+   default moves from `moonshotai/kimi-k3` to it. Also a candidate: retry once when a call stalls with no data for
+   5 minutes (MiMo did twice while one of its providers was degraded).
 4. Bootstrap by script: copy and generate the files with code as far as possible, with a mode that re-copies into a
    repo already running the system and keeps its handoff notes and ADR rows.
 5. Backfill the founding decisions as ADRs: README rules 1–10 are mostly unwritten records.
