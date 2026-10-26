@@ -12,18 +12,10 @@ It is never copied: a repo fills in `template/docs/workflow/project.md` instead.
 - **Checks.** `node --test scripts/*.test.mjs` must pass before implementation ends. There is no typecheck: the
   scripts are plain `.mjs`, and each suite imports its script, so a syntax error fails it. (`node --check` parses
   only the first file it is given, so it is not used on a glob.)
-- **Peer review.** `node scripts/peer-review.mjs` reviews the working tree (everything, before a first commit);
-  `--base main` reviews a branch, `--model <id>` picks a stronger reviewer, `--effort <level>` sets how hard it
-  thinks (default `max`; a run that reports no reasoning, or does not say, prints a warning), `--dry-run`
-  prints the file list and token estimate without calling the API, and `--max-tokens <n>` refuses a pack bigger than
-  that. It needs Node 18+ and `OPENROUTER_API_KEY`, or `--key-file <path>` to a file holding
-  the key alone, as JSON, or as a `.env` line. Pass `--focus "<what the change is and where to look>"`: a focused
-  run finds what an unfocused one misses. Its own tests: `node --test scripts/peer-review.test.mjs`.
+- **Peer review.** `node scripts/peer-review.mjs --key-file .env` reviews the working tree, and `--help` lists the
+  flags. Its own tests: `node --test scripts/peer-review.test.mjs`.
   Every repo copies this kit, so a bug here ships to all of them: once the lead and the owner agree the change is
   stable, review it again after each round of fixes, until a round comes back with no confirmed findings.
-  Exit 2 means OpenRouter needs the owner (no key, a rejected key, no credits, a refusal): stop and tell them, and
-  never skip the review. A stall or a provider failing partway is retried by the script itself; "Gave up after 3
-  attempts" can simply be run again.
   The default reviewer is MiMo (ADR 0003). Which effort makes no difference to it: low, high and max each reasoned
   15–20k tokens on the same diff. A run the script warns about does not count as a round.
 - **Real checks.** A change to the hook or a phase file: run

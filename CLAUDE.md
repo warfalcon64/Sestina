@@ -46,18 +46,15 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Take the kit's facts out of the fill-in `project.md`: the Peer review bullet restates the script's flags, defaults,
-   key handling and exit codes, so every script change means a hand edit in each repo. Move them to a verbatim file
-   and leave `project.md` only the repo's own (key location, model choice, commands).
-2. A docs check script, run in phase 3 beside the tests: index rows match record files, `path:line` pointers exist,
+1. A docs check script, run in phase 3 beside the tests: index rows match record files, `path:line` pointers exist,
    records under 400 words (fail; ADR 0002 says nothing enforces it yet), past ~40 records (warn only: merging is a
    judgment), placeholders left in fill-ins, CLAUDE.md rule lines ending in an ADR.
-3. Let each repo pull the kit instead of this session pushing it: the session-start hook compares the copied files
+2. Let each repo pull the kit instead of this session pushing it: the session-start hook compares the copied files
    with the kit's and says when a re-copy is due, and the repo's own session runs it at a clean point. Never copies by
    itself. Needs the kit's path per machine; silent when the kit is absent.
-4. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy:
-   Campfire, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
+3. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy:
+   Campfire, FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
    `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
-   `.gitignore` lines. By hand, in each `project.md`: the `--key-file` wording and the exit-2 lines; all but Campfire
-   the reworded opening line (the "only workflow file" claim); Campfire, IAF and WebMedTools "length, naming". IAF
-   waits until the owner has keys.
+   `.gitignore` lines. By hand, in each `project.md`: the Peer review bullet cut down to the template's shape, keeping
+   the repo's own command, key and model; all but Campfire and FTL the reworded opening line (the "only workflow file"
+   claim); Campfire, IAF and WebMedTools "length, naming". IAF waits until the owner has keys.

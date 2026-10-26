@@ -1,6 +1,6 @@
 // Run with: node --test scripts/peer-review.test.mjs (Node 18+, nothing to install)
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -22,7 +22,8 @@ import {
   readStream,
   reasoningNote,
   requestBody,
-  sseData
+  sseData,
+  USAGE
 } from './peer-review.mjs'
 
 /** The keys of `expected` match in `actual`; anything else in `actual` is ignored. */
@@ -128,6 +129,21 @@ describe('cli helpers', () => {
     assert.deepEqual(parseArgs(['--dry-run=yes']).unknown, ['--dry-run=yes'])
     assert.deepEqual(parseArgs(['--base']).unknown, ['--base (missing value)'])
     assert.equal(parseArgs(['--base']).base, 'HEAD')
+  })
+
+  it('lists in USAGE every flag parseArgs reads, and parses every flag USAGE lists', () => {
+    const source = readFileSync(new URL('./peer-review.mjs', import.meta.url), 'utf8')
+    const read = new Set([...source.matchAll(/flag === '(--[a-z-]+)'/g)].map((m) => m[1]))
+    const listed = new Set([...USAGE.matchAll(/^\s+(--[a-z-]+)/gm)].map((m) => m[1]))
+    assert.ok(read.size >= 9, `found only ${[...read]}`)
+    assert.deepEqual([...read].sort(), [...listed].sort())
+    for (const line of USAGE.split('\n').filter((l) => /^\s+--/.test(l))) {
+      const [, flag, value] = /^\s+(--[a-z-]+)(?: (\S+))?/.exec(line)
+      const argv = value ? [flag, flag === '--effort' ? 'high' : '1'] : [flag]
+      assert.deepEqual(parseArgs(argv).unknown, [], line)
+    }
+    assert.match(USAGE, /--help, -h/)
+    assertSubset(parseArgs(['-h']), { help: true, unknown: [] })
   })
 
   it('keeps the default when a numeric flag is not a number', () => {
@@ -548,6 +564,7 @@ describe('callModel', () => {
   it('gives up after three failures', async () => {
     const { error, bodies, waits } = await run(fail(502), fail(502), fail(502))
     assert.match(error.message, /^Gave up after 3 attempts: OpenRouter 502: status 502/)
+    assert.match(error.message, /Run it again; if it gives up again, tell the owner/)
     assert.notEqual(error.kind, 'owner')
     assert.equal(bodies.length, 3)
     assert.deepEqual(waits, [5000, 20000])

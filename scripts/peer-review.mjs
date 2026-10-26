@@ -5,12 +5,7 @@
  * A development tool, deliberately outside whatever the repo builds: Node 18+ and nothing else (no package.json, no
  * install, no build step), so it can be copied into a repo in any language.
  *
- *   node scripts/peer-review.mjs                     review the working tree against HEAD (everything, before a first commit)
- *   node scripts/peer-review.mjs --base main         review a branch
- *   node scripts/peer-review.mjs --model <id>        a stronger reviewer for an important change
- *   node scripts/peer-review.mjs --effort <level>    how hard the reviewer thinks (default max; none turns it off)
- *   node scripts/peer-review.mjs --dry-run           print the pack size and file list, call nothing
- *   node scripts/peer-review.mjs --max-tokens <n>    refuse to send a pack bigger than this (default 400000)
+ * `node scripts/peer-review.mjs --help` lists the flags and their defaults (`USAGE` below is that list).
  *
  * The OpenRouter key comes from OPENROUTER_API_KEY, or from --key-file: a file holding the key alone, JSON with an
  * `openrouterApiKey` field, or a `.env`-style `OPENROUTER_API_KEY=` line. Findings are advisory: check every one
@@ -27,7 +22,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { join, resolve } from 'node:path'
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const DEFAULT_MODEL = process.env.PEER_REVIEW_MODEL ?? 'xiaomi/mimo-v2.6-pro'
+const FALLBACK_MODEL = 'xiaomi/mimo-v2.6-pro'
+const DEFAULT_MODEL = process.env.PEER_REVIEW_MODEL ?? FALLBACK_MODEL
 /** Sent on every call: some models, MiMo among them, only think when asked (`enabled` alone means medium). */
 const DEFAULT_EFFORT = 'max'
 /** OpenRouter's reasoning levels; it maps one a model lacks to the nearest it has. */
@@ -41,6 +37,8 @@ const MAX_ATTEMPTS = 3
 const RETRY_WAITS_MS = [5000, 20000]
 const MAX_RETRY_AFTER_S = 60
 const OUT_DIR = '.peer-review'
+const DEFAULT_MAX_FILE_KB = 120
+const DEFAULT_MAX_TOKENS = 400000
 
 const LOCKFILES = new Set([
   'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock', 'composer.lock', 'Cargo.lock', 'poetry.lock',
@@ -56,13 +54,13 @@ const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|ico|icns|pdf|zip|gz|tgz|bz2|7z|ra
  * `sizeBytes` is null when the file no longer exists (deleted by the change).
  */
 export function fileDecision(path, sizeBytes, opts = {}) {
-  const maxBytes = (opts.maxFileKb ?? 120) * 1024
+  const maxBytes = (opts.maxFileKb ?? DEFAULT_MAX_FILE_KB) * 1024
   const name = path.split('/').pop() ?? path
   if (sizeBytes === null) return { include: false, reason: 'deleted' }
   if (opts.ignored) return { include: false, reason: 'git-ignored' }
   if (LOCKFILES.has(name)) return { include: false, reason: 'lockfile' }
   if (BINARY_EXT.test(path)) return { include: false, reason: 'binary' }
-  if (sizeBytes > maxBytes) return { include: false, reason: `${Math.round(sizeBytes / 1024)} KB over the ${opts.maxFileKb ?? 120} KB cap`, oversize: true }
+  if (sizeBytes > maxBytes) return { include: false, reason: `${Math.round(sizeBytes / 1024)} KB over the ${opts.maxFileKb ?? DEFAULT_MAX_FILE_KB} KB cap`, oversize: true }
   return { include: true, reason: '' }
 }
 
@@ -123,15 +121,27 @@ export function estimateTokens(text) {
 
 const VALUE_FLAGS = new Set(['--base', '--model', '--effort', '--focus', '--max-file-kb', '--max-tokens', '--key-file'])
 
-export const USAGE =
-  'usage: node scripts/peer-review.mjs [--base <ref>] [--model <id>] [--effort <level>] [--focus "<text>"] [--max-file-kb <n>] [--max-tokens <n>] [--key-file <path>] [--dry-run]'
+/** The one list of flags, printed by --help and after an unknown argument. One line per flag, with its default. */
+export const USAGE = [
+  'usage: node scripts/peer-review.mjs [flags]   reviews the working tree (everything, before a first commit)',
+  '  --base <ref>         diff against this ref instead, e.g. main to review a branch (default HEAD)',
+  `  --model <id>         the OpenRouter model that reviews (default $PEER_REVIEW_MODEL, else ${FALLBACK_MODEL})`,
+  `  --effort <level>     how hard the reviewer thinks: ${[...EFFORTS].join(', ')} (default ${DEFAULT_EFFORT})`,
+  '  --focus "<text>"     what the change is and where to look, sent with the diff (default none)',
+  `  --max-file-kb <n>    leave out a file bigger than this, and its diff unless the diff fits (default ${DEFAULT_MAX_FILE_KB})`,
+  `  --max-tokens <n>     refuse to send a pack bigger than this many estimated tokens (default ${DEFAULT_MAX_TOKENS})`,
+  '  --key-file <path>    the key alone, JSON with openrouterApiKey, or an OPENROUTER_API_KEY= line; used only when',
+  '                       OPENROUTER_API_KEY is unset (default none)',
+  '  --dry-run            print the pack size and file list, call nothing (default off)',
+  '  --help, -h           print this list'
+].join('\n')
 
 /**
  * Both `--flag value` and `--flag=value` are accepted. Anything unrecognised, and any value flag left without a
  * value, lands in `unknown` rather than being dropped: a typo must not quietly review the wrong thing.
  */
 export function parseArgs(argv) {
-  const out = { base: 'HEAD', model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, focus: '', dryRun: false, maxFileKb: 120, maxTokens: 400000, keyFile: '', unknown: [] }
+  const out = { base: 'HEAD', model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, focus: '', dryRun: false, maxFileKb: DEFAULT_MAX_FILE_KB, maxTokens: DEFAULT_MAX_TOKENS, keyFile: '', unknown: [] }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     const eq = arg.indexOf('=')
@@ -606,7 +616,7 @@ export async function callModel({ key, model, prompt, effort, fetchImpl = fetch,
     console.log(`  ${last.message}; retrying (attempt ${attempt + 1} of ${MAX_ATTEMPTS})${provider ? `, skipping ${provider}` : ''}…`)
     await sleep(wait)
   }
-  throw Object.assign(new Error(`Gave up after ${MAX_ATTEMPTS} attempts: ${last.message}`), { kind: 'retry' })
+  throw Object.assign(new Error(`Gave up after ${MAX_ATTEMPTS} attempts: ${last.message}\nRun it again; if it gives up again, tell the owner.`), { kind: 'retry' })
 }
 
 /** 2 when OpenRouter needs the owner (credits, the key, or a refusal), 1 for any other failure. */

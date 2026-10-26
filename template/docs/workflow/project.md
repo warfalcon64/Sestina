@@ -9,16 +9,9 @@ is the only one to rewrite when the kit is copied.
 - **Structural docs.** `CLAUDE.md` (rules and commands), `docs/architecture.md` (the map), `docs/glossary.md`
   (terms), `docs/spec.md` (design for what is not built; built work collapses to a `**Built.**` note).
 - **Checks.** `<typecheck command>` and `<test command>` must pass before implementation ends.
-- **Peer review.** `node scripts/peer-review.mjs` reviews the working tree (everything, before a first commit);
-  `--base main` reviews a branch, `--model <id>` picks a stronger reviewer, `--effort <level>` sets how hard it
-  thinks (default `max`; a run that reports no reasoning, or does not say, prints a warning), `--dry-run`
-  prints the file list and token estimate without calling the API, and `--max-tokens <n>` refuses a pack bigger than
-  that. It needs Node 18+ and `OPENROUTER_API_KEY`, or `--key-file <path>` to a file holding
-  the key alone, as JSON, or as a `.env` line. Pass `--focus "<what the change is and where to look>"`: a focused
-  run finds what an unfocused one misses. Its own tests: `node --test scripts/peer-review.test.mjs`.
-  Exit 2 means OpenRouter needs the owner (no key, a rejected key, no credits, a refusal): stop and tell them, and
-  never skip the review. A stall or a provider failing partway is retried by the script itself; "Gave up after 3
-  attempts" can simply be run again.
+- **Peer review.** `<the command this repo runs, with how it gets the key>` reviews the working tree, and `--help`
+  lists the flags. Its own tests: `node --test scripts/peer-review.test.mjs`. <The model, when not the default; what
+  review cannot see here and what stands in for it.>
   <If Node or a key is not available, replace this line with: phase 4 is the lead's own read of the diff, and the
   verdict list says no outside model reviewed it.>
 - **Real checks.** <What tests cannot see and how it is checked for real: a prompt change needs a real model call, a

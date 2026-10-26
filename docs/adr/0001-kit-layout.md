@@ -15,6 +15,8 @@ The verbatim files (`VERBATIM` in `scripts/bootstrap.mjs`) live once, at the roo
 `template/` holds only the files with placeholders: CLAUDE.md, `docs/architecture.md`, `docs/glossary.md`,
 `docs/spec.md`, `docs/adr/0001-template.md` and `docs/workflow/project.md`. The bootstrap script copies both, the
 handoff's header without the kit's notes and the ADR index's prose; how it merges them is ADR 0004.
+A fill-in file holds only the repo's own facts (its commands, key, model, paths); what a kit tool does, its flags
+and defaults included, is said by the tool itself (`--help`) and the phase files, which re-copies keep current.
 
 ## Consequences
 A copy is the verbatim list plus `template/`, not one `cp -r`. An edit to a verbatim file is exercised in the kit
