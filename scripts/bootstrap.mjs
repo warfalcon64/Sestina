@@ -49,7 +49,9 @@ export const VERBATIM = [
   { path: 'scripts/peer-review.mjs', node: true },
   { path: 'scripts/peer-review.test.mjs', node: true },
   { path: 'scripts/handoff-hook.mjs', node: true },
-  { path: 'scripts/handoff-hook.test.mjs', node: true }
+  { path: 'scripts/handoff-hook.test.mjs', node: true },
+  { path: 'scripts/doc-check.mjs', node: true },
+  { path: 'scripts/doc-check.test.mjs', node: true }
 ]
 
 /** .gitignore entries the system needs. `node` marks the ones --no-node skips. */

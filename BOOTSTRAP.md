@@ -45,8 +45,9 @@ keeping its facts.
 Claude Code holds back a repo's hooks until its workspace trust prompt is accepted, and loads them when a session
 starts; `node --test scripts/handoff-hook.test.mjs` runs the hook's tests. The review runs as
 `node scripts/peer-review.mjs` from anywhere in the repo, including one with no commits yet, and its tests as
-`node --test scripts/peer-review.test.mjs`. Without Node in the repo, pass `--no-node`: it skips the four script
-files, the hooks and the two ignore lines they need (`.env` is still added), and nothing else in the kit needs Node.
+`node --test scripts/peer-review.test.mjs`; the docs check runs as `node scripts/doc-check.mjs`. Without Node in the
+repo, pass `--no-node`: it skips the six script files, the hooks and the two ignore lines they need (`.env` is still
+added), and nothing else in the kit needs Node.
 
 ## 3. Fill, in this order
 

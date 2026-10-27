@@ -9,9 +9,9 @@ It is never copied: a repo fills in `template/docs/workflow/project.md` instead.
 - **Structural docs.** `CLAUDE.md` (rules and commands), `docs/architecture.md` (the map), `docs/glossary.md`
   (terms), `README.md` (the system), `BOOTSTRAP.md` (how the kit is copied), `template/` (the files a repo fills in),
   `scripts/bootstrap.mjs` (the list of verbatim files).
-- **Checks.** `node --test scripts/*.test.mjs` must pass before implementation ends. There is no typecheck: the
-  scripts are plain `.mjs`, and each suite imports its script, so a syntax error fails it. (`node --check` parses
-  only the first file it is given, so it is not used on a glob.)
+- **Checks.** `node --test scripts/*.test.mjs` and `node scripts/doc-check.mjs` must pass before implementation ends.
+  There is no typecheck: the scripts are plain `.mjs`, and each suite imports its script, so a syntax error fails it.
+  (`node --check` parses only the first file it is given, so it is not used on a glob.)
 - **Peer review.** `node scripts/peer-review.mjs --key-file .env` reviews the working tree, and `--help` lists the
   flags. Its own tests: `node --test scripts/peer-review.test.mjs`.
   Every repo copies this kit, so a bug here ships to all of them: once the lead and the owner agree the change is

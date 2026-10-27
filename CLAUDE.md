@@ -1,10 +1,11 @@
 # doc-system-kit — notes for Claude Code
 
-The documentation system and six-phase workflow that other repos copy: Markdown plus three dependency-free Node 18
+The documentation system and six-phase workflow that other repos copy: Markdown plus four dependency-free Node 18
 scripts.
 
 ## Commands
-- `node --test scripts/*.test.mjs`: all three suites, and each imports its script, so a syntax error fails it.
+- `node --test scripts/*.test.mjs`: all four suites, and each imports its script, so a syntax error fails it.
+- `node scripts/doc-check.mjs` checks the docs against ADR 0002 and each other; it runs beside the tests.
 - `node scripts/bootstrap.mjs <repo> [--dry-run] [--no-node]` sets the system up in a repo or re-copies it; it writes
   outside the kit, so dry-run first and get the owner's OK. ADR 0004.
 - `node scripts/peer-review.mjs --key-file .env` costs money; run it in phase 4, not before. Exit 2 means OpenRouter
@@ -46,9 +47,9 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. A docs check script, run in phase 3 beside the tests: index rows match record files, `path:line` pointers exist,
-   records under 400 words (fail; ADR 0002 says nothing enforces it yet), past ~40 records (warn only: merging is a
-   judgment), placeholders left in fill-ins, CLAUDE.md rule lines ending in an ADR.
+1. An empty reviewer reply is no review, but `peer-review.mjs` exits 0 on it ("did not answer with JSON") and 04 says
+   nothing: MiMo did it twice in the docs-check change, each after 10+ minutes of reasoning. First, since it bites
+   every review and the re-copy should carry the fix.
 2. Let each repo pull the kit instead of this session pushing it: the session-start hook compares the copied files
    with the kit's and says when a re-copy is due, and the repo's own session runs it at a clean point. Never copies by
    itself. Needs the kit's path per machine; silent when the kit is absent.
@@ -57,4 +58,5 @@ Each item is its own change and starts at phase 1 (brainstorm), not at the code.
    `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
    `.gitignore` lines. By hand, in each `project.md`: the Peer review bullet cut down to the template's shape, keeping
    the repo's own command, key and model; all but Campfire and FTL the reworded opening line (the "only workflow file"
-   claim); Campfire, IAF and WebMedTools "length, naming". IAF waits until the owner has keys.
+   claim); Campfire, IAF and WebMedTools "length, naming"; the Checks line gains `node scripts/doc-check.mjs` (dropped
+   without Node); Campfire's 0014 and 0032 trimmed under 400 words. IAF waits until the owner has keys.

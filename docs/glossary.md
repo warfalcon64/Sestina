@@ -2,6 +2,8 @@
 
 Words that mean something particular here. Alphabetical, with the file the thing lives in.
 
+- **docs check** — `node scripts/doc-check.mjs`, run beside the tests: mechanical checks that the docs still match
+  the files and the record rules; it only reads. `scripts/doc-check.mjs`.
 - **fill-in file** — a file a repo writes for itself from a copy with `<angle-bracket>` placeholders; copied once,
   never overwritten. `template/`.
 - **hand-back** — a file the sync leaves untouched because it cannot merge it without losing something, printed as
