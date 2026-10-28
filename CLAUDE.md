@@ -47,13 +47,10 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. An empty reviewer reply is no review, but `peer-review.mjs` exits 0 on it ("did not answer with JSON") and 04 says
-   nothing: MiMo did it twice in the docs-check change, each after 10+ minutes of reasoning. First, since it bites
-   every review and the re-copy should carry the fix.
-2. Let each repo pull the kit instead of this session pushing it: the session-start hook compares the copied files
+1. Let each repo pull the kit instead of this session pushing it: the session-start hook compares the copied files
    with the kit's and says when a re-copy is due, and the repo's own session runs it at a clean point. Never copies by
    itself. Needs the kit's path per machine; silent when the kit is absent.
-3. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy:
+2. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy:
    Campfire, FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
    `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
    `.gitignore` lines. By hand, in each `project.md`: the Peer review bullet cut down to the template's shape, keeping

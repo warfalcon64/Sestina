@@ -12,8 +12,8 @@
 2. While it runs, review the diff yourself. Your own reading is the primary review; the outside model is a second
    pair of eyes, not an authority.
 3. When it fails or warns: exit 2 means the owner must act (a key, credits, a refusal), so stop and tell them, and
-   never skip the review. A run it warns about reasoning is no review. One that gave up after its retries is run
-   again; if it gives up again, tell the owner.
+   never skip the review. A run it warns about reasoning is no review. One that gave up after its retries, or says it
+   got no review, is run again; if that happens again, tell the owner.
 4. Check **every** finding against the actual code before acting on it. Outside models hallucinate call sites,
    invent rules and misread control flow.
 5. Give each finding a verdict: confirmed (with what it would break) or rejected (with a one-line reason).

@@ -14,7 +14,8 @@ Words that mean something particular here. Alphabetical, with the file the thing
   heading. `docs/workflow/0N-*.md`.
 - **re-copy** — a sync into a repo that already has `docs/workflow/project.md`; it adds no fill-in file.
   `scripts/bootstrap.mjs`.
-- **round** — one peer-review run; a run that warns about missing reasoning does not count. `docs/workflow/project.md`.
+- **round** — one peer-review run that brings back a review; a run that fails (exit 1 or 2) or warns about missing
+  reasoning does not count. `docs/workflow/project.md`.
 - **sync** — one run of `scripts/bootstrap.mjs`, the same for a first setup and a re-copy. ADR 0004.
 - **verbatim file** — a file copied byte for byte from the kit's root and edited only there. `VERBATIM` in
   `scripts/bootstrap.mjs`.

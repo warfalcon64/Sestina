@@ -450,13 +450,16 @@ export function foldChunk(reply, chunk) {
     const named = chunk.provider ?? chunk.error.metadata?.provider_name ?? reply.provider
     throw new CallError(`OpenRouter: ${detail}`, { status: chunk.error.code, metadata: chunk.error.metadata, provider: named, inStream: true, detail })
   }
-  const delta = chunk.choices?.[0]?.delta ?? {}
+  const choice = chunk.choices?.[0] ?? {}
+  const delta = choice.delta ?? {}
   const content = typeof delta.content === 'string' ? delta.content : ''
   const reasoning = typeof delta.reasoning === 'string' ? delta.reasoning : ''
   return {
     model: chunk.model ?? reply.model,
     provider,
     usage: chunk.usage ?? reply.usage,
+    finishReason: choice.finish_reason ?? reply.finishReason,
+    nativeFinishReason: choice.native_finish_reason ?? reply.nativeFinishReason,
     content: reply.content + content,
     received: reply.received + content.length + reasoning.length
   }
@@ -466,7 +469,7 @@ export function foldChunk(reply, chunk) {
 export async function readStream(res, abort, idleMs = IDLE_MS) {
   const started = Date.now()
   let lastNote = started
-  let reply = { model: undefined, provider: undefined, usage: undefined, content: '', received: 0 }
+  let reply = { model: undefined, provider: undefined, usage: undefined, finishReason: undefined, nativeFinishReason: undefined, content: '', received: 0 }
   let tail = ''
   let idle
   const stillAlive = () => {
@@ -510,7 +513,8 @@ export async function readStream(res, abort, idleMs = IDLE_MS) {
   } finally {
     clearTimeout(idle)
   }
-  return { model: reply.model, usage: reply.usage, choices: [{ message: { content: reply.content } }] }
+  const choice = { message: { content: reply.content }, finish_reason: reply.finishReason, native_finish_reason: reply.nativeFinishReason }
+  return { model: reply.model, provider: reply.provider, usage: reply.usage, choices: [choice] }
 }
 
 /** The request OpenRouter is sent: a streamed JSON reply, its usage, how hard to think, and providers to skip. */
@@ -624,14 +628,22 @@ export function exitCode(err) {
   return err?.kind === 'owner' ? 2 : 1
 }
 
+/** Who answered, through which provider, why it stopped, and what it cost: the parts not known are left out. */
+export function replyLines({ model, provider, finishReason, nativeFinishReason, usage }) {
+  const via = provider ? ` via ${provider}` : ''
+  const native = nativeFinishReason && nativeFinishReason !== finishReason ? ` (${nativeFinishReason})` : ''
+  const finished = finishReason ? ` · finished: ${finishReason}${native}` : ''
+  const lines = [`Reviewer: ${model}${via}${finished}`]
+  if (usage) {
+    const cost = typeof usage.cost === 'number' ? ` · $${usage.cost.toFixed(4)}` : ''
+    lines.push(`Tokens: ${usage.prompt_tokens ?? '?'} in, ${usage.completion_tokens ?? '?'} out${cost}`)
+  }
+  return lines
+}
+
 function printReview(review, meta) {
   console.log('')
-  console.log(`Reviewer: ${meta.model}`)
-  if (meta.usage) {
-    const u = meta.usage
-    const cost = typeof u.cost === 'number' ? ` · $${u.cost.toFixed(4)}` : ''
-    console.log(`Tokens: ${u.prompt_tokens ?? '?'} in, ${u.completion_tokens ?? '?'} out${cost}`)
-  }
+  for (const line of replyLines(meta)) console.log(line)
   if (review.summary) console.log(`\n${review.summary}`)
   if (!review.findings.length) {
     console.log('\nNo findings.')
@@ -696,25 +708,39 @@ async function main() {
   const note = reasoningNote(response?.usage, opts.effort)
   const text = response?.choices?.[0]?.message?.content ?? ''
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const meta = {
+    model: response?.model ?? opts.model,
+    provider: response?.provider,
+    finishReason: response?.choices?.[0]?.finish_reason,
+    nativeFinishReason: response?.choices?.[0]?.native_finish_reason,
+    usage: response?.usage
+  }
+  const { model, provider, finishReason, nativeFinishReason, usage } = meta
   const parsed = extractJson(text)
-  if (!parsed) {
-    console.log('\nThe reviewer did not answer with JSON. Raw reply:\n')
+  // The schema SYSTEM asks for requires a findings array; JSON without one, or whose findings all fail to
+  // normalize, is no review.
+  const review = Array.isArray(parsed?.findings) ? normalizeReview(parsed) : null
+  if (!review || (parsed.findings.length > 0 && review.findings.length === 0)) {
+    console.log('\nNo review: the reply was not the JSON review asked for. Raw reply:\n')
     console.log(text || '(empty)')
+    console.log('')
+    for (const line of replyLines(meta)) console.log(line)
+    if (note) console.log(`\n${note}`)
     // The call was paid for, so keep it out of scrollback.
     mkdirSync(OUT_DIR, { recursive: true })
-    const rawFile = join(OUT_DIR, `${stamp}.raw.txt`)
-    writeFileSync(rawFile, text || '')
+    const rawFile = join(OUT_DIR, `${stamp}.raw.json`)
+    writeFileSync(rawFile, JSON.stringify({ base: pack.base, model, provider, finishReason, nativeFinishReason, effort: opts.effort, usage: usage ?? null, reply: text }, null, 2))
     console.log(`\nSaved the raw reply to ${rawFile}`)
-    if (note) console.log(`\n${note}`)
+    console.log('Run it again; if it happens again, tell the owner.')
+    process.exitCode = 1
     return
   }
-  const review = normalizeReview(parsed)
-  printReview(review, { model: response?.model ?? opts.model, usage: response?.usage })
+  printReview(review, meta)
   if (note) console.log(`\n${note}`)
 
   mkdirSync(OUT_DIR, { recursive: true })
   const file = join(OUT_DIR, `${stamp}.json`)
-  writeFileSync(file, JSON.stringify({ base: pack.base, model: response?.model ?? opts.model, effort: opts.effort, usage: response?.usage ?? null, ...review }, null, 2))
+  writeFileSync(file, JSON.stringify({ base: pack.base, model, provider, finishReason, nativeFinishReason, effort: opts.effort, usage: usage ?? null, ...review }, null, 2))
   console.log(`\nSaved to ${file}`)
 }
 

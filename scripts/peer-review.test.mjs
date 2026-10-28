@@ -1,8 +1,9 @@
 // Run with: node --test scripts/peer-review.test.mjs (Node 18+, nothing to install)
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -21,6 +22,7 @@ import {
   parseArgs,
   readStream,
   reasoningNote,
+  replyLines,
   requestBody,
   sseData,
   USAGE
@@ -309,17 +311,27 @@ describe('streamed reply', () => {
     assertSubset(reply, { model: 'm', content: '{"summary":"ok"}', received: 19, usage: { prompt_tokens: 5, cost: 0.1 } })
   })
 
+  it('keeps the finish reasons when a later chunk has none', () => {
+    let reply = { content: '', received: 0 }
+    reply = foldChunk(reply, { choices: [{ delta: { content: '' }, finish_reason: 'length', native_finish_reason: 'max_tokens' }] })
+    reply = foldChunk(reply, { choices: [], usage: { prompt_tokens: 5 } })
+    assertSubset(reply, { finishReason: 'length', nativeFinishReason: 'max_tokens' })
+  })
+
   it('throws on an error sent mid-stream', () => {
     assert.throws(() => foldChunk({ content: '', received: 0 }, { error: { message: 'provider died' } }), /provider died/)
   })
 
   /** What readStream makes of a body sent as these chunks (strings, or byte arrays to split a character). */
   async function streamed(...chunks) {
+    return (await streamedReply(...chunks)).choices[0].message.content
+  }
+  /** The whole completion readStream builds from these chunks. */
+  async function streamedReply(...chunks) {
     const body = (async function* () {
       for (const chunk of chunks) yield typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk
     })()
-    const reply = await readStream({ body }, () => assert.fail('aborted'))
-    return reply.choices[0].message.content
+    return readStream({ body }, () => assert.fail('aborted'))
   }
   const delta = (content) => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`
 
@@ -343,6 +355,23 @@ describe('streamed reply', () => {
 
   it('still throws on an error sent as the last line', async () => {
     await assert.rejects(streamed(`${delta('{"a"')}\n\n`, 'data: {"error":{"message":"provider died"}}'), /provider died/)
+  })
+
+  it('returns the finish reasons and the provider', async () => {
+    const last = { provider: 'P', choices: [{ delta: { content: '' }, finish_reason: 'stop', native_finish_reason: 'end_turn' }] }
+    const reply = await streamedReply(`${delta('ok')}\n\n`, `data: ${JSON.stringify(last)}\n\n`)
+    assertSubset(reply, { provider: 'P' })
+    assertSubset(reply.choices[0], { finish_reason: 'stop', native_finish_reason: 'end_turn' })
+  })
+
+  it('names the reviewer, and the provider, finish reasons and cost only when known', () => {
+    assert.deepEqual(replyLines({ model: 'm' }), ['Reviewer: m'])
+    assert.deepEqual(replyLines({ model: 'm', provider: 'P', finishReason: 'stop', nativeFinishReason: 'stop' }), ['Reviewer: m via P · finished: stop'])
+    assert.deepEqual(
+      replyLines({ model: 'm', finishReason: 'length', nativeFinishReason: 'max_tokens', usage: { prompt_tokens: 5, completion_tokens: 7, cost: 0.12345 } }),
+      ['Reviewer: m · finished: length (max_tokens)', 'Tokens: 5 in, 7 out · $0.1235']
+    )
+    assert.deepEqual(replyLines({ model: 'm', usage: { prompt_tokens: 5 } }), ['Reviewer: m', 'Tokens: 5 in, ? out'])
   })
 })
 
@@ -574,5 +603,79 @@ describe('callModel', () => {
     const { error, bodies } = await run(fail(400))
     assert.equal(error.kind, 'fatal')
     assert.equal(bodies.length, 1)
+  })
+})
+
+describe('main', () => {
+  const script = fileURLToPath(new URL('./peer-review.mjs', import.meta.url))
+  // Stands in for OpenRouter: one streamed reply whose content is $STUB_CONTENT.
+  const stub = `
+const chunks = [
+  { provider: 'StubCo', choices: [{ delta: { reasoning: 'thinking' } }] },
+  { choices: [{ delta: { content: process.env.STUB_CONTENT } }] },
+  { choices: [{ delta: { content: '' }, finish_reason: 'stop', native_finish_reason: 'end_turn' }] },
+  { choices: [], usage: { prompt_tokens: 10, completion_tokens: 20, cost: 0.5 } }
+]
+globalThis.fetch = async () => ({
+  ok: true,
+  status: 200,
+  body: (async function* () {
+    for (const c of chunks) yield new TextEncoder().encode('data: ' + JSON.stringify(c) + '\\n\\n')
+    yield new TextEncoder().encode('data: [DONE]\\n\\n')
+  })()
+})
+`
+
+  /** Runs the script against the stub in a fresh repo with one untracked file; returns its exit and saved records. */
+  function run(content) {
+    const dir = mkdtempSync(join(tmpdir(), 'peer-review-main-'))
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' })
+      writeFileSync(join(dir, 'a.txt'), 'hello\n')
+      const stubFile = join(dir, 'stub.cjs')
+      writeFileSync(stubFile, stub)
+      const env = { ...process.env, OPENROUTER_API_KEY: 'x', STUB_CONTENT: content }
+      delete env.PEER_REVIEW_MODEL
+      const res = spawnSync(process.execPath, ['--require', stubFile, script], { cwd: dir, env, encoding: 'utf8' })
+      const out = join(dir, '.peer-review')
+      const files = readdirSync(out)
+      const read = (name) => JSON.parse(readFileSync(join(out, name), 'utf8'))
+      return {
+        status: res.status,
+        raw: files.filter((f) => f.endsWith('.raw.json')).map(read),
+        reviews: files.filter((f) => f.endsWith('.json') && !f.endsWith('.raw.json')).map(read)
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('exits 1 on an empty reply and saves why', () => {
+    const { status, raw, reviews } = run('')
+    assert.equal(status, 1)
+    assert.equal(raw.length, 1)
+    assert.equal(reviews.length, 0)
+    assertSubset(raw[0], { provider: 'StubCo', finishReason: 'stop', nativeFinishReason: 'end_turn', reply: '' })
+    assert.equal(raw[0].usage.cost, 0.5)
+  })
+
+  it('exits 1 on JSON that is not a review', () => {
+    const { status, raw } = run('{"message":"done"}')
+    assert.equal(status, 1)
+    assert.equal(raw.length, 1)
+  })
+
+  it('exits 1 on a review whose every finding is dropped', () => {
+    const { status, raw } = run('{"summary":"ok","findings":[{"file":"x","problem":"y"}]}')
+    assert.equal(status, 1)
+    assert.equal(raw.length, 1)
+  })
+
+  it('exits 0 on a review and saves it', () => {
+    const { status, raw, reviews } = run('{"summary":"ok","findings":[]}')
+    assert.equal(status, 0)
+    assert.equal(raw.length, 0)
+    assert.equal(reviews.length, 1)
+    assertSubset(reviews[0], { provider: 'StubCo', finishReason: 'stop' })
   })
 })
