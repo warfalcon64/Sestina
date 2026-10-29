@@ -26,6 +26,7 @@ It is never copied: a repo fills in `template/docs/workflow/project.md` instead.
   run it with `--dry-run` against a repo that already runs the system.
 - **Data.** The hook writes `.claude/handoff/<session>.json`; records written before a hook change must still load
   after it.
-- **Downstream.** A change to a verbatim file names, in CLAUDE.md's "Next up", the repos to re-copy it into with
-  `node scripts/bootstrap.mjs <repo>`.
+- **Downstream.** A repo whose hook has the re-copy notice learns of a verbatim change by itself (ADR 0009). A change
+  to a verbatim file names in CLAUDE.md's "Next up" only the repos without it yet, to re-copy with
+  `node scripts/bootstrap.mjs <repo>`, and any by-hand follow-up a sync cannot do.
 - **Commits.** The owner commits. Never commit without being asked.

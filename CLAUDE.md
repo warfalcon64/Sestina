@@ -47,10 +47,8 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Let each repo pull the kit instead of this session pushing it: the session-start hook compares the copied files
-   with the kit's and says when a re-copy is due, and the repo's own session runs it at a clean point. Never copies by
-   itself. Needs the kit's path per machine; silent when the kit is absent.
-2. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy:
+1. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy,
+   and gets the hook that announces later ones (ADR 0009; set `DOC_SYSTEM_KIT` once on this machine first):
    Campfire, FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
    `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
    `.gitignore` lines. By hand, in each `project.md`: the Peer review bullet cut down to the template's shape, keeping

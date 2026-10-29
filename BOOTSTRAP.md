@@ -43,7 +43,9 @@ would sit) are added to `.gitignore`. The files under `template/` are copied onl
 keeping its facts.
 
 Claude Code holds back a repo's hooks until its workspace trust prompt is accepted, and loads them when a session
-starts; `node --test scripts/handoff-hook.test.mjs` runs the hook's tests. The review runs as
+starts. Once per machine, set `DOC_SYSTEM_KIT` to the kit's path (`"env"` in `~/.claude/settings.json`, or the shell
+profile): the hook then says at a clean session start when the kit has changes the repo lacks (ADR 0009). Unset, it
+says nothing. `node --test scripts/handoff-hook.test.mjs` runs the hook's tests. The review runs as
 `node scripts/peer-review.mjs` from anywhere in the repo, including one with no commits yet, and its tests as
 `node --test scripts/peer-review.test.mjs`; the docs check runs as `node scripts/doc-check.mjs`. Without Node in the
 repo, pass `--no-node`: it skips the six script files, the hooks and the two ignore lines they need (`.env` is still

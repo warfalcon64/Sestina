@@ -180,10 +180,16 @@ function walk(dir, prefix = '') {
   })
 }
 
-/** Sync the kit into `repo`, pushing one report line per path onto `lines` as it goes. */
-function sync(repo, opts, lines) {
+/**
+ * Sync the kit into `repo`, pushing one report line per path onto `lines` as it goes, and onto `found` the paths it
+ * creates or updates (or would) and the reasons it hands back.
+ */
+function sync(repo, opts, lines, found = { paths: [], handBacks: [] }) {
   const say = (status, path) => lines.push(`${status.padEnd(9)} ${path}`)
-  const handBack = (why) => lines.push(`merge by hand: ${why}`)
+  const handBack = (why) => {
+    found.handBacks.push(why)
+    lines.push(`merge by hand: ${why}`)
+  }
   /** Write `content` to `rel` in the repo when its bytes differ, and say what happened. */
   const put = (rel, content) => {
     const path = join(repo, rel)
@@ -194,6 +200,7 @@ function sync(repo, opts, lines) {
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, next)
     }
+    found.paths.push(rel)
     say(`${opts.dryRun ? 'would ' : ''}${exists ? (opts.dryRun ? 'update' : 'updated') : opts.dryRun ? 'create' : 'created'}`, rel)
   }
   // Judged before anything is written, so this run's own files do not count.
@@ -260,6 +267,16 @@ function sync(repo, opts, lines) {
       ? "Now fill in, in BOOTSTRAP §3's order."
       : `Read \`git diff\` in ${repo}. The fill-in files were kept, so docs/workflow/project.md and CLAUDE.md can still lag template/: compare them by hand.`
   )
+}
+
+/**
+ * What a re-copy into `repo` would change, from a dry run of the sync: `paths` it would create or update and the
+ * `handBacks` it would leave to a hand merge. Writes nothing.
+ */
+export function drift(repo) {
+  const found = { paths: [], handBacks: [] }
+  sync(repo, { dryRun: true, node: true }, [], found)
+  return found
 }
 
 function main() {

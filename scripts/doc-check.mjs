@@ -8,7 +8,7 @@
  * `node scripts/doc-check.mjs --help` lists the flags (`USAGE` below). Run from anywhere in the repo, it reads
  * `CLAUDE.md` and `docs/**\/*.md` from the git root, skipping `docs/handoff.md`, and prints one line per problem as
  * `<file>[:<line>] <what>`. It exits 1 when anything fails; a warning alone exits 0. It fails:
- * - a record (`docs/adr/NNNN-*.md`) of 400 words or more, counted the way `wc -w` counts them (ADR 0002);
+ * - a record (`docs/adr/NNNN-*.md`) of 400 words or more, counted the way `wc -w` counts them;
  * - a record with no row in `docs/adr/README.md` (a row's dead link fails with every other link);
  * - a relative inline link, `[text](path)`, that does not resolve (`http(s):`, `mailto:` and `#` links are skipped;
  *   reference-style links, and links leaving the repo, are not read);

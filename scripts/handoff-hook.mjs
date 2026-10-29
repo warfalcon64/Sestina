@@ -9,7 +9,8 @@
  *
  *   node scripts/handoff-hook.mjs session-start   print the handoff's notes when it has any, then docs/workflow/README.md,
  *                                                 project.md and the current phase's file (01 + 02 when no change is in
- *                                                 progress); stdout joins Claude's context
+ *                                                 progress), then the re-copy notice when one is due; stdout joins
+ *                                                 Claude's context
  *   node scripts/handoff-hook.mjs prompt          record a hash of the handoff; when its phase moved since this session
  *                                                 last saw one, print the new phase's file (01 + 02 after the notes go)
  *   node scripts/handoff-hook.mjs post-tool       after ExitPlanMode before phase 3, print 03; after another tool, print the phase file
@@ -27,6 +28,12 @@
  * hooks.UserPromptSubmit, hooks.PostToolUse (matcher Edit|Write|MultiEdit|Bash|ExitPlanMode) and hooks.Stop, each a
  * command hook running this script with its event. `.claude/handoff/` holds per-session records and is gitignored.
  *
+ * The re-copy notice: DOC_SYSTEM_KIT names the kit on this machine. At a clean point (no notes, git saying the repo is
+ * clean, no uncommitted change to a tracked file in the kit, the repo not the kit, and a session that is not a
+ * compaction, a resume or in plan mode, where a change can be under way with nothing written yet), session-start
+ * imports the kit's scripts/bootstrap.mjs and asks its drift() what a re-copy would write; when anything, it says so
+ * and how to run it. It never copies.
+ *
  * Stop never loops: when Claude Code reports `stop_hook_active` (Claude is already continuing because of a Stop hook),
  * the turn is allowed to end. The nudge goes out as context rather than a block (a block shows as a hook error), and
  * asks for a one-line reply when there is nothing to keep, since an empty reply makes Claude Code ask again. Plan mode
@@ -36,13 +43,16 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { join, sep } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HANDOFF = join('docs', 'handoff.md')
 const RECORD_DIR = join('.claude', 'handoff')
 const WORKFLOW = join('docs', 'workflow')
 const MISSING = 'missing'
+/** Paths a re-copy notice lists before it says how many more. */
+const RECOPY_SHOWN = 5
 
 export const NO_CHANGE_LEAD = "No change is in progress. Any change, Next up's included, starts at phase 1:"
 export const PLAN_APPROVED_LEAD = 'The plan is approved: phase 3 (implement).'
@@ -128,6 +138,27 @@ export function decideStop({ stopHookActive, permissionMode, recorded, current, 
   return { block: true, why: 'not written' }
 }
 
+/** `n` and the noun, plural unless n is 1. */
+const count = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`
+
+/**
+ * What session-start appends when the kit at `kit` has changes `repo` lacks: what a re-copy would change, then how to
+ * run it. `paths` and `handBacks` are what the kit's drift() reports.
+ */
+export function recopyText({ kit, repo, paths, handBacks }) {
+  const shown = paths.slice(0, RECOPY_SHOWN).map((path) => `- ${path}`)
+  if (paths.length > RECOPY_SHOWN) shown.push(`- and ${paths.length - RECOPY_SHOWN} more`)
+  const lines = [`The doc-system kit at ${kit} has changes this repo lacks.`]
+  if (paths.length) lines.push(`A re-copy would create or update ${count(paths.length, 'file')}:`, ...shown)
+  if (handBacks.length) lines.push(`It would hand back ${count(handBacks.length, 'file')} to merge by hand.`)
+  lines.push(
+    '',
+    `Tell the owner before anything else. On their go, run \`node "${kit}/scripts/bootstrap.mjs" "${repo}" --dry-run\`, ` +
+      'then the same without `--dry-run`, read `git diff`, and finish what it hands back.'
+  )
+  return lines.join('\n') + '\n'
+}
+
 /** What a blocking Stop prints: the reason as context, which continues the turn once. */
 export function stopOutput() {
   return { hookSpecificOutput: { hookEventName: 'Stop', additionalContext: STOP_REASON } }
@@ -139,12 +170,50 @@ function readText(path) {
   return existsSync(path) ? readFileSync(path, 'utf8') : null
 }
 
+/** `git status --porcelain` with `args` in `dir`; throws when git fails. */
+function gitStatus(dir, args) {
+  return execFileSync('git', ['status', '--porcelain', ...args], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+}
+
+// The hook's own records never count, even where .gitignore misses them.
+const OWN_WORK = ['--', '.', ':(exclude).claude/handoff']
+
 function isDirty(dir) {
   try {
-    // The hook's own records never count, even where .gitignore misses them.
-    return execFileSync('git', ['status', '--porcelain', '--', '.', ':(exclude).claude/handoff'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() !== ''
+    return gitStatus(dir, OWN_WORK) !== ''
   } catch {
     return false
+  }
+}
+
+/**
+ * The re-copy notice for the repo at `dir` whose handoff is `text`, or '' unless the session starts fresh outside plan
+ * mode (`input`'s source and permission_mode, either absent counting as fresh), DOC_SYSTEM_KIT names a kit, the repo
+ * is outside it, both are at a clean point (no notes, clean trees) and the kit's drift() reports a path. Any
+ * failure, an older kit without drift() included, is ''.
+ */
+async function recopyNotice(dir, text, input) {
+  try {
+    // A compact or resume rejoins a session, and plan mode may be a brainstorm with no notes yet: neither is a clean point.
+    if (input.source === 'compact' || input.source === 'resume' || input.permission_mode === 'plan') return ''
+    if (!process.env.DOC_SYSTEM_KIT) return ''
+    const kit = realpathSync(process.env.DOC_SYSTEM_KIT)
+    const script = join(kit, 'scripts', 'bootstrap.mjs')
+    if (!existsSync(script)) return ''
+    const repo = realpathSync(dir)
+    if (repo === kit || repo.startsWith(kit + sep)) return ''
+    // Unlike Stop, a repo git cannot vouch for counts as busy: a throw here is silence.
+    if (notesOf(text ?? '') !== '' || gitStatus(repo, OWN_WORK) !== '') return ''
+    // A re-copy must not take the kit's unfinished work; untracked files cannot change what it copies.
+    if (gitStatus(kit, ['--untracked-files=no']) !== '') return ''
+    const { drift } = await import(pathToFileURL(script).href)
+    if (typeof drift !== 'function') return ''
+    const { paths = [], handBacks = [] } = (await drift(repo)) ?? {}
+    // Hand-backs alone are not due: a re-copy writes nothing and cannot clear them.
+    if (!paths.length) return ''
+    return recopyText({ kit, repo, paths, handBacks })
+  } catch {
+    return ''
   }
 }
 
@@ -178,7 +247,7 @@ function phaseText(dir, phase, lead = phaseLead(phase)) {
   return contextText(lead, phaseFiles(phase).map((n) => phaseFileText(dir, n)))
 }
 
-function run(event, input) {
+async function run(event, input) {
   const dir = process.env.CLAUDE_PROJECT_DIR || input.cwd
   if (!dir) return
   const text = readText(join(dir, HANDOFF))
@@ -196,7 +265,7 @@ function run(event, input) {
         return null
       }
     })
-    const parts = [sessionStartText(text ?? ''), contextText(WORKFLOW_LEAD, workflow), known ? phaseText(dir, phase) : '']
+    const parts = [sessionStartText(text ?? ''), contextText(WORKFLOW_LEAD, workflow), known ? phaseText(dir, phase) : '', await recopyNotice(dir, text, input)]
     process.stdout.write(parts.filter(Boolean).join('\n'))
     if (recordPath && known) writeRecord(recordPath, record, { phase })
     return
@@ -242,7 +311,7 @@ function run(event, input) {
   }
 }
 
-function main() {
+async function main() {
   const event = process.argv[2]
   let input
   try {
@@ -251,15 +320,28 @@ function main() {
     return
   }
   if (!input || typeof input !== 'object') return
-  run(event, input)
+  await run(event, input)
 }
 
-// Only run when invoked directly, so the helpers above can be imported by tests. Never fail a turn.
-if (process.argv[1] && process.argv[1].endsWith('handoff-hook.mjs')) {
+/**
+ * Whether node was started on this file. A name match is not enough: the re-copy notice imports the kit's bootstrap.mjs,
+ * which imports the kit's own copy of this file into a process started on the repo's.
+ */
+function invokedDirectly() {
   try {
-    main()
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
   } catch {
-    // Silent by design: a broken hook must not block or wedge Claude.
+    return false
   }
+}
+
+// Only run when invoked directly, so the helpers above can be imported by tests and by the kit. Never fail a turn.
+if (invokedDirectly()) {
   process.exitCode = 0
+  // Silent by design: a broken hook must not block or wedge Claude. main is async, so this catches a throw too.
+  main()
+    .catch(() => {})
+    .finally(() => {
+      process.exitCode = 0
+    })
 }

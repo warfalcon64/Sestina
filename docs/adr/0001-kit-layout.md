@@ -8,7 +8,8 @@ The kit was both a template and a project, and BOOTSTRAP copied `docs/` wholesal
 session-start hook printed `<typecheck command>`). The hooks wrote handoff notes into the very file being copied, and
 the kit had no place for its own records. A root `adr/` folder alone was rejected: the placeholders would stay the
 instructions. Moving everything copyable to `template/` was rejected: the hook hardcodes `docs/handoff.md` and
-`docs/workflow/` (`scripts/handoff-hook.mjs:42` and `:44`), so the root would need symlinks or duplicates that drift.
+`docs/workflow/` (`HANDOFF` and `WORKFLOW` in `scripts/handoff-hook.mjs`), so the root would need symlinks or
+duplicates that drift.
 
 ## Decision
 The verbatim files (`VERBATIM` in `scripts/bootstrap.mjs`) live once, at the root, and the kit runs them.

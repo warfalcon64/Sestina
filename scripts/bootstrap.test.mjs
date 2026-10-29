@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { VERBATIM, appendIgnores, chainsHandoffHook, gitignoreAdditions, joinHandoff, looseNotes, mergeSettings, mergeableSettings, parseArgs, splitIndex } from './bootstrap.mjs'
+import { VERBATIM, appendIgnores, chainsHandoffHook, drift, gitignoreAdditions, joinHandoff, looseNotes, mergeSettings, mergeableSettings, parseArgs, splitIndex } from './bootstrap.mjs'
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'bootstrap.mjs')
 const KIT = join(dirname(SCRIPT), '..')
@@ -331,6 +331,36 @@ describe('bootstrap.mjs end to end', () => {
       assert.equal(runScript(dir, '--force').status, 1)
       assert.equal(runScript().status, 1)
       assert.deepEqual(readdirSync(dir), ['kit'])
+    })
+  })
+})
+
+describe('drift', () => {
+  /** Every file under `dir` with its text, to show a call wrote nothing. */
+  const snapshot = (dir, prefix = '') =>
+    readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((entry) => {
+      const rel = join(prefix, entry.name)
+      return entry.isDirectory() ? snapshot(dir, rel) : [[rel, readFileSync(join(dir, rel), 'utf8')]]
+    })
+
+  it('is empty right after a sync, and names an edited verbatim file', () => {
+    inTempDir((dir) => {
+      assert.equal(runScript(dir).status, 0)
+      assert.deepEqual(drift(dir), { paths: [], handBacks: [] })
+      write(dir, 'docs/workflow/03-implement.md', '# Stale\n')
+      const before = snapshot(dir)
+      assert.deepEqual(drift(dir), { paths: ['docs/workflow/03-implement.md'], handBacks: [] })
+      assert.deepEqual(snapshot(dir), before)
+    })
+  })
+
+  it('reports a hand-back and leaves the repo untouched', () => {
+    inTempDir((dir) => {
+      assert.equal(runScript(dir).status, 0)
+      write(dir, '.claude/settings.json', '{ not json')
+      const before = snapshot(dir)
+      assert.deepEqual(drift(dir), { paths: [], handBacks: ['.claude/settings.json is not a settings object with hooks as arrays'] })
+      assert.deepEqual(snapshot(dir), before)
     })
   })
 })

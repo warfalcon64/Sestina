@@ -14,6 +14,8 @@ Words that mean something particular here. Alphabetical, with the file the thing
   heading. `docs/workflow/0N-*.md`.
 - **re-copy** — a sync into a repo that already has `docs/workflow/project.md`; it adds no fill-in file.
   `scripts/bootstrap.mjs`.
+- **re-copy notice** — what `session-start` adds when the kit at `DOC_SYSTEM_KIT` has changes the repo lacks, at a
+  clean point; the session tells the owner, and runs the re-copy on their go. ADR 0009.
 - **round** — one peer-review run that brings back a review; a run that fails (exit 1 or 2) or warns about missing
   reasoning does not count. `docs/workflow/project.md`.
 - **sync** — one run of `scripts/bootstrap.mjs`, the same for a first setup and a re-copy. ADR 0004.

@@ -1,9 +1,9 @@
 // Run with: node --test scripts/handoff-hook.test.mjs (Node 18+, nothing to install)
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -17,6 +17,7 @@ import {
   phaseMoved,
   phaseOf,
   postToolOutput,
+  recopyText,
   recordName,
   sessionStartText,
   stopOutput
@@ -59,11 +60,38 @@ function inFreshRepo(fn) {
   }
 }
 
-/** Run the hook for `event` with `input` (an object, or a raw string) in `dir`; returns its stdout. */
-function hook(dir, event, input) {
+/**
+ * Run the hook for `event` with `input` (an object, or a raw string) in `dir`, with `env` added; returns its stdout. The
+ * machine's own DOC_SYSTEM_KIT is dropped, so a real kit never joins the output.
+ */
+function hook(dir, event, input, env = {}) {
   const text = typeof input === 'string' ? input : JSON.stringify({ session_id: 's1', cwd: dir, ...input })
-  return execFileSync('node', [SCRIPT, event], { input: text, env: { ...process.env, CLAUDE_PROJECT_DIR: dir }, encoding: 'utf8' })
+  const { DOC_SYSTEM_KIT, CLAUDE_PROJECT_DIR, ...rest } = process.env
+  return execFileSync('node', [SCRIPT, event], { input: text, env: { ...rest, CLAUDE_PROJECT_DIR: dir, ...env }, encoding: 'utf8' })
 }
+
+const RECOPY_LEAD = /^The doc-system kit at .* has changes this repo lacks\.$/m
+
+/**
+ * Run `fn` with a fake kit: a committed git repo whose scripts/bootstrap.mjs is `source` (a canned drift), then clean
+ * up. It stands in for the real kit, which a copied repo does not have.
+ */
+function withFakeKit(source, fn) {
+  const kit = mkdtempSync(join(tmpdir(), 'handoff-hook-kit-'))
+  try {
+    const git = (...args) => execFileSync('git', args, { cwd: kit, stdio: 'ignore' })
+    git('init', '-q')
+    mkdirSync(join(kit, 'scripts'))
+    writeFileSync(join(kit, 'scripts', 'bootstrap.mjs'), source)
+    git('add', '.')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
+    fn(kit)
+  } finally {
+    rmSync(kit, { recursive: true, force: true })
+  }
+}
+
+const DRIFT = "export const drift = () => ({ paths: ['docs/workflow/03-implement.md'], handBacks: [] })\n"
 
 const handoff = (dir) => join(dir, 'docs', 'handoff.md')
 const record = (dir, session = 's1') => JSON.parse(readFileSync(join(dir, '.claude', 'handoff', `${session}.json`), 'utf8'))
@@ -164,7 +192,135 @@ describe('decideStop', () => {
   })
 })
 
+describe('recopyText', () => {
+  it('leads with the kit, lists the paths and the hand-backs, then says how to re-copy', () => {
+    const out = recopyText({ kit: '/kit', repo: '/repo', paths: ['a.md', 'b.md'], handBacks: ['x'] })
+    assert.equal(out.split('\n')[0], 'The doc-system kit at /kit has changes this repo lacks.')
+    assert.ok(out.includes('2 files:\n- a.md\n- b.md\n'))
+    assert.ok(out.includes('hand back 1 file '))
+    assert.ok(out.includes('`node "/kit/scripts/bootstrap.mjs" "/repo" --dry-run`'))
+    assert.ok(out.endsWith('finish what it hands back.\n'))
+  })
+
+  it('caps the list at five, and leaves out what is empty', () => {
+    const paths = ['1', '2', '3', '4', '5', '6', '7']
+    const out = recopyText({ kit: '/kit', repo: '/repo', paths, handBacks: [] })
+    assert.deepEqual(out.match(/^- .*$/gm), ['- 1', '- 2', '- 3', '- 4', '- 5', '- and 2 more'])
+    assert.ok(!out.includes('hand back'))
+    const handBackOnly = recopyText({ kit: '/kit', repo: '/repo', paths: [], handBacks: ['x', 'y'] })
+    assert.ok(!handBackOnly.includes('would create') && handBackOnly.includes('hand back 2 files '))
+  })
+})
+
+describe('the re-copy notice at session-start', () => {
+  it('comes last when the kit has changes and both repos are at a clean point', () => {
+    withFakeKit(DRIFT, (kit) =>
+      inFreshRepo((dir) => {
+        const out = hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit })
+        assert.match(out, RECOPY_LEAD)
+        assert.ok(out.indexOf(marker(2)) < out.search(RECOPY_LEAD))
+        assert.ok(out.includes('- docs/workflow/03-implement.md'))
+        assert.ok(out.includes(`"${realpathSync(kit)}/scripts/bootstrap.mjs" "${realpathSync(dir)}" --dry-run`))
+        assert.deepEqual(markers(out), [marker(1), marker(2)])
+      })
+    )
+  })
+
+  it('shows on startup and clear, but not on compact, resume or in plan mode', () => {
+    withFakeKit(DRIFT, (kit) =>
+      inFreshRepo((dir) => {
+        const env = { DOC_SYSTEM_KIT: kit }
+        for (const source of ['startup', 'clear']) assert.match(hook(dir, 'session-start', { source }, env), RECOPY_LEAD, source)
+        for (const source of ['compact', 'resume']) assert.doesNotMatch(hook(dir, 'session-start', { source }, env), RECOPY_LEAD, source)
+        assert.doesNotMatch(hook(dir, 'session-start', { source: 'startup', permission_mode: 'plan' }, env), RECOPY_LEAD)
+      })
+    )
+  })
+
+  it('stays out without DOC_SYSTEM_KIT, with notes, or on a dirty repo', () => {
+    withFakeKit(DRIFT, (kit) =>
+      inFreshRepo((dir) => {
+        assert.doesNotMatch(hook(dir, 'session-start', {}), RECOPY_LEAD)
+        writeFileSync(join(dir, 'work.txt'), 'x')
+        assert.doesNotMatch(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+        rmSync(join(dir, 'work.txt'))
+        appendFileSync(handoff(dir), NOTE)
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'notes'], { cwd: dir, stdio: 'ignore' })
+        assert.doesNotMatch(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+      })
+    )
+  })
+
+  it('stays out when the kit is dirty, or the repo is the kit, but not for an untracked file in the kit', () => {
+    withFakeKit(DRIFT, (kit) =>
+      inFreshRepo((dir) => {
+        assert.doesNotMatch(hook(kit, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+        writeFileSync(join(kit, 'scratch.txt'), 'x')
+        assert.match(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+        appendFileSync(join(kit, 'scripts', 'bootstrap.mjs'), '// work\n')
+        assert.doesNotMatch(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+      })
+    )
+  })
+
+  it('stays out when git fails in the kit or the repo, or the kit has no bootstrap.mjs', () => {
+    withFakeKit(DRIFT, (kit) => {
+      const plain = mkdtempSync(join(tmpdir(), 'handoff-hook-test-'))
+      try {
+        // A repo that is not a git repo cannot be known clean.
+        mkdirSync(join(plain, 'docs'))
+        writeFileSync(handoff(plain), HEADER)
+        assert.doesNotMatch(hook(plain, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+        inFreshRepo((dir) => {
+          // A kit that is not a git repo cannot be known clean.
+          mkdirSync(join(plain, 'scripts'))
+          writeFileSync(join(plain, 'scripts', 'bootstrap.mjs'), DRIFT)
+          assert.doesNotMatch(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: plain }), RECOPY_LEAD)
+          // A clean kit without the script.
+          execFileSync('git', ['rm', '-rq', 'scripts'], { cwd: kit, stdio: 'ignore' })
+          execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'drop'], { cwd: kit, stdio: 'ignore' })
+          assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: kit, encoding: 'utf8' }), '')
+          assert.doesNotMatch(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit }), RECOPY_LEAD)
+        })
+      } finally {
+        rmSync(plain, { recursive: true, force: true })
+      }
+    })
+  })
+
+  it('stays out, keeping the rest, when the drift has no path, is missing, throws or the kit is absent', () => {
+    const kits = [
+      'export const drift = () => ({ paths: [], handBacks: [] })\n',
+      "export const drift = () => ({ paths: [], handBacks: ['x'] })\n",
+      'export const other = 1\n',
+      "export const drift = async () => { throw new Error('x') }\n",
+      "throw new Error('broken kit')\n"
+    ]
+    for (const source of kits) {
+      withFakeKit(source, (kit) =>
+        inFreshRepo((dir) => {
+          const out = hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: kit })
+          assert.doesNotMatch(out, RECOPY_LEAD, source)
+          assert.deepEqual(markers(out), [marker(1), marker(2)], source)
+        })
+      )
+    }
+    inFreshRepo((dir) => assert.deepEqual(markers(hook(dir, 'session-start', {}, { DOC_SYSTEM_KIT: join(dir, 'missing') })), [marker(1), marker(2)]))
+  })
+})
+
 describe('the script', () => {
+  it('does not run when imported by another file of the same name, as the kit imports its own copy', () => {
+    inFreshRepo((dir) => {
+      const other = join(dir, 'other', 'handoff-hook.mjs')
+      mkdirSync(dirname(other))
+      writeFileSync(other, `import ${JSON.stringify(pathToFileURL(SCRIPT).href)}\n`)
+      const { DOC_SYSTEM_KIT, CLAUDE_PROJECT_DIR, ...rest } = process.env
+      const out = execFileSync('node', [other, 'session-start'], { input: JSON.stringify({ cwd: dir }), env: { ...rest, CLAUDE_PROJECT_DIR: dir }, encoding: 'utf8' })
+      assert.equal(out, '')
+    })
+  })
+
   it('session-start prints the notes, the workflow and the current phase, in order', () => {
     inFreshRepo((dir) => {
       appendFileSync(handoff(dir), NOTE)
