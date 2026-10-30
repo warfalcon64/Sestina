@@ -47,11 +47,12 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Re-copy into the repos that run the system, so each is touched once by the verbatim changes since its last copy,
-   and gets the hook that announces later ones (ADR 0009; set `DOC_SYSTEM_KIT` once on this machine first):
-   Campfire, FTL, IAF, ISK0, Laze and WebMedTools (New), each `Project <name>` under `~/Documents/Projects`. Run
-   `node scripts/bootstrap.mjs <repo>`, dry-run first; it brings the verbatim files, the hook, its settings and the
-   `.gitignore` lines. By hand, in each `project.md`: the Peer review bullet cut down to the template's shape, keeping
-   the repo's own command, key and model; all but Campfire and FTL the reworded opening line (the "only workflow file"
-   claim); Campfire, IAF and WebMedTools "length, naming"; the Checks line gains `node scripts/doc-check.mjs` (dropped
-   without Node); Campfire's 0014 and 0032 trimmed under 400 words. IAF waits until the owner has keys.
+1. Re-copy into the two repos that run the system without the hook that announces verbatim changes (ADR 0009),
+   each `Project <name>` under `~/Documents/Projects`, deferred by the owner: Campfire once its uncommitted
+   `docs/adr/README.md` is committed, IAF once the owner has keys. Run `node scripts/bootstrap.mjs <repo>`, dry-run
+   first. By hand, in Campfire's and IAF's `project.md`: the Peer review bullet cut down to the template's shape,
+   keeping the repo's own command, key and model; "length, naming"; the Checks line gains
+   `node scripts/doc-check.mjs`; IAF also the reworded opening line (the "only workflow file" claim). In their
+   CLAUDE.md, the template's `docs/handoff.md` line under Docs and its bullet under Workflow. Campfire's 0014 and
+   0032 trimmed under 400 words. WebMedTools' re-copy had no outside review (OpenRouter rejected its key): review
+   that commit with `--base` once the key works.
