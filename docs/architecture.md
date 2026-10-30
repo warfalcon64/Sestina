@@ -19,8 +19,9 @@ the exact list (ADR 0004).
 - `scripts/bootstrap.mjs` — copies the system into a repo or re-copies it, one idempotent sync. ADR 0004.
 - `scripts/peer-review.mjs` — sends the uncommitted diff to an outside model through OpenRouter. ADRs 0003 and 0008.
 - `scripts/handoff-hook.mjs` — Claude Code hooks that put the handoff and the current phase file in context, nudge
-  when a turn ends without writing the handoff, and at a clean session start say when the kit at `DOC_SYSTEM_KIT` has
-  changes the repo lacks. Wired in `.claude/settings.json`; README rules 9 and 10. ADRs 0007 and 0009.
+  when a turn ends without writing the handoff, at a clean session start say when the kit at `DOC_SYSTEM_KIT` has
+  changes the repo lacks, and refuse a peer review whose output is piped, redirected or captured. Wired in
+  `.claude/settings.json`; README rules 9 and 10. ADRs 0007, 0009 and 0010.
 - `scripts/doc-check.mjs` — the docs check: fails records of 400 words or more, records with no index row, dead
   inline links, `path:line` pointers to a missing file or past its end, missing cited records, uncited rules and
   template placeholders. ADR 0002.

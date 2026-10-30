@@ -219,7 +219,7 @@ describe('bootstrap.mjs end to end', () => {
       const settings = JSON.parse(readFileSync(join(dir, '.claude/settings.json'), 'utf8'))
       const kitHooks = JSON.parse(kitText('.claude/settings.json')).hooks
       assert.equal(settings.model, 'x')
-      assert.deepEqual(settings.hooks.PreToolUse, [foreign])
+      assert.deepEqual(settings.hooks.PreToolUse, [foreign, ...kitHooks.PreToolUse])
       assert.deepEqual(settings.hooks.Stop, [foreign, ...kitHooks.Stop])
       assert.deepEqual(settings.hooks.SessionStart, kitHooks.SessionStart)
       assert.equal(readFileSync(join(dir, '.gitignore'), 'utf8'), 'node_modules/\n/.env\n.peer-review/\n.claude/handoff/\n')
