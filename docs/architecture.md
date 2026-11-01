@@ -10,7 +10,7 @@ file to open. Why things are this way lives in `docs/adr/`; terms are defined in
 | The system, as the kit runs it | `docs/workflow/`, `docs/handoff.md`, `docs/adr/README.md`, `.claude/settings.json` | verbatim (handoff: header only; index: prose only) |
 | Copied tools | `scripts/peer-review.mjs`, `scripts/handoff-hook.mjs`, `scripts/doc-check.mjs` and their tests | verbatim, unless `--no-node` |
 | Fill-in files | `template/` | once, on a first setup, placeholders and all |
-| The kit's own | `CLAUDE.md`, `README.md`, `BOOTSTRAP.md`, `docs/workflow/project.md`, `docs/adr/0*.md`, this page, the glossary, `scripts/bootstrap.mjs` | never |
+| The kit's own | `CLAUDE.md`, `README.md`, `SYSTEM.md`, `BOOTSTRAP.md`, `LICENSE`, `.github/workflows/test.yml`, `docs/workflow/project.md`, `docs/adr/0*.md`, this page, the glossary, `scripts/bootstrap.mjs` | never |
 
 Verbatim files live once, at the root, and are edited only there (ADR 0001); `VERBATIM` in `scripts/bootstrap.mjs` is
 the exact list (ADR 0004).
@@ -21,7 +21,7 @@ the exact list (ADR 0004).
 - `scripts/handoff-hook.mjs` — Claude Code hooks that put the handoff and the current phase file in context, nudge
   when a turn ends without writing the handoff, at a clean session start say when the kit at `DOC_SYSTEM_KIT` has
   changes the repo lacks, and refuse a peer review whose output is piped, redirected or captured. Wired in
-  `.claude/settings.json`; README rules 9 and 10. ADRs 0007, 0009 and 0010.
+  `.claude/settings.json`; SYSTEM.md rules 9 and 10. ADRs 0007, 0009 and 0010.
 - `scripts/doc-check.mjs` — the docs check: fails records of 400 words or more, records with no index row, dead
   inline links, `path:line` pointers to a missing file or past its end, missing cited records, uncited rules and
   template placeholders. ADR 0002.

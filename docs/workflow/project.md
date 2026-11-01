@@ -7,11 +7,12 @@ It is never copied: a repo fills in `template/docs/workflow/project.md` instead.
 - **Decision records.** `docs/adr/`, index at `docs/adr/README.md`. Read the index row before changing a subsystem it
   covers. Format, length, naming and the bar for a new one are in that README.
 - **Structural docs.** `CLAUDE.md` (rules and commands), `docs/architecture.md` (the map), `docs/glossary.md`
-  (terms), `README.md` (the system), `BOOTSTRAP.md` (how the kit is copied), `template/` (the files a repo fills in),
-  `scripts/bootstrap.mjs` (the list of verbatim files).
+  (terms), `README.md` (the front page), `SYSTEM.md` (the system), `BOOTSTRAP.md` (how the kit is copied), `template/`
+  (the files a repo fills in), `scripts/bootstrap.mjs` (the list of verbatim files).
 - **Checks.** `node --test scripts/*.test.mjs` and `node scripts/doc-check.mjs` must pass before implementation ends.
   There is no typecheck: the scripts are plain `.mjs`, and each suite imports its script, so a syntax error fails it.
-  (`node --check` parses only the first file it is given, so it is not used on a glob.)
+  (`node --check` parses only the first file it is given, so it is not used on a glob.) After a push, CI runs both
+  checks on Node 18 and 24: `gh run list` shows it and `gh run view <id> --log-failed` reads a failure.
 - **Peer review.** `node scripts/peer-review.mjs --key-file .env` reviews the working tree, and `--help` lists the
   flags. Its own tests: `node --test scripts/peer-review.test.mjs`.
   Every repo copies this kit, so a bug here ships to all of them: once the lead and the owner agree the change is

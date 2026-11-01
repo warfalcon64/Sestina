@@ -1,4 +1,4 @@
-# doc-system-kit — notes for Claude Code
+# Sestina (doc-system-kit) — notes for Claude Code
 
 The documentation system and six-phase workflow that other repos copy: Markdown plus four dependency-free Node 18
 scripts.
@@ -28,7 +28,8 @@ scripts.
 - `docs/adr/README.md` — index of architecture decision records, one row each. Read the row before changing a
   subsystem it covers; open the file when the row is not enough.
 - `docs/architecture.md` — which file to open: the layers (what is copied and how), the scripts, the sync's flow.
-  Update it when structure moves. README.md describes the system and BOOTSTRAP.md how it is copied.
+  Update it when structure moves. README.md introduces the kit, SYSTEM.md holds the system and its rules, and
+  BOOTSTRAP.md says how it is copied.
 - `docs/glossary.md` — what our words mean. Add a term when you coin one.
 - No spec yet; "Next up" is the backlog.
 - `docs/workflow/` — the six phases every change walks, one file each. See below.
@@ -47,12 +48,12 @@ and `docs/workflow/project.md` for the commands and paths they defer to.
 
 ## Next up
 Each item is its own change and starts at phase 1 (brainstorm), not at the code. In this order:
-1. Re-copy into the two repos that run the system without the hook that announces verbatim changes (ADR 0009),
-   each `Project <name>` under `~/Documents/Projects`, deferred by the owner: Campfire once its uncommitted
-   `docs/adr/README.md` is committed, IAF once the owner has keys. Run `node scripts/bootstrap.mjs <repo>`, dry-run
-   first. By hand, in Campfire's and IAF's `project.md`: the Peer review bullet cut down to the template's shape,
-   keeping the repo's own command, key and model; "length, naming"; the Checks line gains
-   `node scripts/doc-check.mjs`; IAF also the reworded opening line (the "only workflow file" claim). In their
-   CLAUDE.md, the template's `docs/handoff.md` line under Docs and its bullet under Workflow. Campfire's 0014 and
-   0032 trimmed under 400 words. WebMedTools' re-copy had no outside review (OpenRouter rejected its key): review
-   that commit with `--base` once the key works.
+1. Re-copy into the two repos under `~/Documents/Projects` that run the system without the hook that announces
+   verbatim changes (ADR 0009), deferred by the owner: one until it commits its pending `docs/adr/README.md`, the
+   other until the owner has keys. `node scripts/bootstrap.mjs <repo> --dry-run` on each repo there finds them; then
+   the run. By hand, in their `project.md`: the Peer review bullet cut down to the template's shape, keeping the
+   repo's own command, key and model; "length, naming"; the Checks line gains `node scripts/doc-check.mjs`; an
+   opening line still claiming to be the only workflow file gets the template's wording. In their CLAUDE.md, the
+   template's `docs/handoff.md` line under Docs and its bullet under Workflow. Their docs check names the records to
+   trim under 400 words. One earlier re-copy went unreviewed (OpenRouter rejected that repo's key): review that
+   commit with `--base` once its key works.

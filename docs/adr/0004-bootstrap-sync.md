@@ -16,7 +16,7 @@ notes under the kit's header; the ADR index keeps the repo's table under the kit
 replace the repo's in `.claude/settings.json`, beside any others; missing `.gitignore` lines are appended. Fill-in
 files are copied only while the repo has no `docs/workflow/project.md`, and never over a different file. Whatever it
 cannot merge without losing something (notes off the header, a chained hook command, a malformed settings file) is
-left untouched and reported for a merge by hand. `VERBATIM` in the script is the one list; the README describes the
+left untouched and reported for a merge by hand. `VERBATIM` in the script is the one list; SYSTEM.md describes the
 files and points there. The script is the kit's own and is never copied.
 
 ## Consequences
