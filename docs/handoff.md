@@ -20,7 +20,9 @@ into the right doc. It bends "one fact, one place", one phase at a time.
 6. In plan mode this file cannot be written: the plan file holds the notes, and the first write after it carries
    the owner's choice and the plan here.
 7. When a phase ends, replace the notes with that phase's outcome (the owner's choice in their words, the plan, the
-   review's verdicts) under the next phase. The commit that ends merge prep leaves only this header.
+   review's verdicts) under the next phase. Merge prep's notes, the drafted message among them, stay until the
+   owner's go; the commit that ends merge prep leaves only this header.
 8. Nothing here is the record: merge prep still puts each fact in its own doc.
 
 Notes go below as `## <change>, phase <n> (<name>), from <short HEAD>`, then short lines.
+

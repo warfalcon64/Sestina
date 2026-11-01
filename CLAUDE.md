@@ -57,11 +57,11 @@ Each item is its own change and starts at phase 1 (brainstorm), not at the code.
    template's `docs/handoff.md` line under Docs and its bullet under Workflow. Their docs check names the records to
    trim under 400 words. One earlier re-copy went unreviewed (OpenRouter rejected that repo's key): review that
    commit with `--base` once its key works.
-2. Close the gap between merge prep's wipe and the commit: the handoff is wiped before the owner's go, so a `/clear`
-   or compaction there loses the drafted message and verdicts, and session-start says no change is in progress over
-   a dirty tree. The lead's lean: keep a "phase 6, ready to commit" note and wipe in the commit itself (handoff header
-   rule 7, `06-merge-prep.md` step 3, both verbatim); a session-start check for a dirty tree with no notes only if a
-   session still slips.
+2. Narrow the pre-tool refusal of a piped peer review (ADR 0010, `reviewPiped` in `handoff-hook.mjs`), found by a
+   session after a re-copy: it reads everything after the run as the run's own, so `node …peer-review.mjs && echo
+   done > f`, `; ls | wc -l` and `--focus "$(git log | head -5)"` are refused with the wrong advice to run it again
+   without the pipe. Stop at the run's own command (`;`, `&&`, `||`, newline). Also missed: a run inside `bash -c
+   "… | tail"`. Add compound and `$( )` cases to the tests.
 3. Stop session-start loading its files twice on a resume: the restored transcript already holds the first load
    (about 1,700 tokens with no change in progress, 2–4k with notes). Skip it on `source: resume`, or print one line
    pointing back, as the re-copy notice already skips resume (ADR 0007, `handoff-hook.mjs`).

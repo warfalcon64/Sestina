@@ -55,5 +55,6 @@ These are what a session is actually following. The files are just where the rul
    "Next up" and skips the phases. So the same hooks read the phase from the handoff's latest heading and put files in
    context whole: the workflow README, `project.md` and the current phase file when a session starts; phases 1 and
    2 together when no change is in progress (plan mode cannot write the handoff, so the step between them is not
-   seen); phase 3 when a change's plan is approved; and the new phase's file whenever the heading moves.
+   seen), under a warning instead when git shows uncommitted work; phase 3 when a change's plan is approved; and the
+   new phase's file whenever the heading moves.
    Rejected: a command the owner runs before stepping away (it misses crashes, forgotten runs and idle compaction).

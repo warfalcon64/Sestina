@@ -9,10 +9,11 @@
  *
  *   node scripts/handoff-hook.mjs session-start   print the handoff's notes when it has any, then docs/workflow/README.md,
  *                                                 project.md and the current phase's file (01 + 02 when no change is in
- *                                                 progress), then the re-copy notice when one is due; stdout joins
- *                                                 Claude's context
+ *                                                 progress, under a warning when git shows uncommitted work), then the
+ *                                                 re-copy notice when one is due; stdout joins Claude's context
  *   node scripts/handoff-hook.mjs prompt          record a hash of the handoff; when its phase moved since this session
- *                                                 last saw one, print the new phase's file (01 + 02 after the notes go)
+ *                                                 last saw one, print the new phase's file (01 + 02 after the notes go,
+ *                                                 under the same warning)
  *   node scripts/handoff-hook.mjs post-tool       after ExitPlanMode before phase 3, print 03; after another tool, print the phase file
  *                                                 when the handoff's phase moved (never 01 + 02, never git)
  *   node scripts/handoff-hook.mjs stop            nudge once when the handoff is unchanged since the prompt while a
@@ -58,6 +59,9 @@ const MISSING = 'missing'
 const RECOPY_SHOWN = 5
 
 export const NO_CHANGE_LEAD = "No change is in progress. Any change, Next up's included, starts at phase 1:"
+export const DIRTY_LEAD =
+  'No notes say a change is in progress, but git shows uncommitted work: notes wiped before a commit, or work begun ' +
+  'without them. Read `git status` and ask the owner what it is before anything else. A new change starts at phase 1:'
 export const PLAN_APPROVED_LEAD = 'The plan is approved: phase 3 (implement).'
 export const WORKFLOW_LEAD = 'Every change walks the six phases in docs/workflow/:'
 
@@ -334,6 +338,14 @@ function phaseText(dir, phase, lead = phaseLead(phase)) {
   return contextText(lead, phaseFiles(phase).map((n) => phaseFileText(dir, n)))
 }
 
+/**
+ * The lead for `phase`, or DIRTY_LEAD when no notes cover uncommitted work: a handoff wiped before its commit, or a
+ * change begun without notes. Git is asked only when there are no notes.
+ */
+function leadFor(dir, text, phase) {
+  return notesOf(text ?? '') === '' && isDirty(dir) ? DIRTY_LEAD : phaseLead(phase)
+}
+
 async function run(event, input) {
   if (event === 'pre-tool') {
     const command = input.tool_input?.command
@@ -357,7 +369,7 @@ async function run(event, input) {
         return null
       }
     })
-    const parts = [sessionStartText(text ?? ''), contextText(WORKFLOW_LEAD, workflow), known ? phaseText(dir, phase) : '', await recopyNotice(dir, text, input)]
+    const parts = [sessionStartText(text ?? ''), contextText(WORKFLOW_LEAD, workflow), known ? phaseText(dir, phase, leadFor(dir, text, phase)) : '', await recopyNotice(dir, text, input)]
     process.stdout.write(parts.filter(Boolean).join('\n'))
     if (recordPath && known) writeRecord(recordPath, record, { phase })
     return
@@ -366,7 +378,7 @@ async function run(event, input) {
   if (event === 'prompt') {
     // Plain stdout from UserPromptSubmit joins Claude's context.
     const moved = known && phaseMoved(record, phase)
-    if (moved) process.stdout.write(phaseText(dir, phase))
+    if (moved) process.stdout.write(phaseText(dir, phase, leadFor(dir, text, phase)))
     writeRecord(recordPath, record, moved ? { hash: hashOf(text), phase } : { hash: hashOf(text) })
     return
   }

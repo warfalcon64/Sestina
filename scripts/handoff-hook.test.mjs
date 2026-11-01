@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  DIRTY_LEAD,
   NO_CHANGE_LEAD,
   PLAN_APPROVED_LEAD,
   REVIEW_REASON,
@@ -416,6 +417,58 @@ describe('the script', () => {
     })
   })
 
+  it('session-start with no notes over uncommitted work warns instead of the no-change line', () => {
+    inFreshRepo((dir) => {
+      writeFileSync(join(dir, 'work.txt'), 'x')
+      const out = hook(dir, 'session-start', { source: 'startup' })
+      assert.ok(out.includes(DIRTY_LEAD) && out.indexOf(DIRTY_LEAD) < out.indexOf(marker(1)))
+      assert.ok(!out.includes(NO_CHANGE_LEAD))
+      assert.deepEqual(markers(out), [marker(1), marker(2)])
+      assert.deepEqual(record(dir), { phase: null })
+    })
+  })
+
+  it('session-start does not count its own records as uncommitted work, even unignored', () => {
+    inFreshRepo((dir) => {
+      const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' })
+      writeFileSync(join(dir, '.gitignore'), '')
+      // A machine-wide ignore of .claude/ would hide the record and make this pass without OWN_WORK.
+      git('config', 'core.excludesFile', '/dev/null')
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'unignore')
+      hook(dir, 'session-start', { source: 'startup' })
+      assert.match(git('status', '--porcelain', '--untracked-files=all'), /\.claude\/handoff\/s1\.json/)
+      const out = hook(dir, 'session-start', { source: 'startup' })
+      assert.ok(out.includes(NO_CHANGE_LEAD))
+      assert.ok(!out.includes(DIRTY_LEAD))
+    })
+  })
+
+  it('session-start with notes over uncommitted work prints the notes, not the warning', () => {
+    inFreshRepo((dir) => {
+      appendFileSync(handoff(dir), NOTE)
+      writeFileSync(join(dir, 'work.txt'), 'x')
+      const out = hook(dir, 'session-start', { source: 'startup' })
+      assert.ok(out.includes(NOTE.trimEnd()))
+      assert.ok(!out.includes(DIRTY_LEAD) && !out.includes(NO_CHANGE_LEAD))
+      assert.deepEqual(markers(out), [marker(3)])
+    })
+  })
+
+  it('session-start outside a git repo keeps the no-change line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'handoff-hook-test-'))
+    try {
+      mkdirSync(join(dir, 'docs'))
+      writeFileSync(handoff(dir), HEADER)
+      writeWorkflow(dir)
+      const out = hook(dir, 'session-start', { source: 'startup' })
+      assert.ok(out.includes(NO_CHANGE_LEAD))
+      assert.ok(!out.includes(DIRTY_LEAD))
+      assert.deepEqual(markers(out), [marker(1), marker(2)])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('prompt re-injects when the phase moves, and 01 + 02 once the notes are wiped', () => {
     inFreshRepo((dir) => {
       appendFileSync(handoff(dir), NOTE)
@@ -429,6 +482,19 @@ describe('the script', () => {
       assert.ok(out.startsWith(NO_CHANGE_LEAD))
       assert.deepEqual(markers(out), [marker(1), marker(2)])
       assert.deepEqual(record(dir), { phase: null, hash: hashOf(HEADER) })
+    })
+  })
+
+  it('prompt warns once the notes are wiped over uncommitted work', () => {
+    inFreshRepo((dir) => {
+      appendFileSync(handoff(dir), NOTE)
+      hook(dir, 'session-start', {})
+      writeFileSync(join(dir, 'work.txt'), 'x')
+      writeFileSync(handoff(dir), HEADER)
+      const out = hook(dir, 'prompt', {})
+      assert.ok(out.startsWith(DIRTY_LEAD) && !out.includes(NO_CHANGE_LEAD))
+      assert.deepEqual(markers(out), [marker(1), marker(2)])
+      assert.equal(hook(dir, 'prompt', {}), '')
     })
   })
 
