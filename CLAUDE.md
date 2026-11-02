@@ -57,11 +57,12 @@ Each item is its own change and starts at phase 1 (brainstorm), not at the code.
    template's `docs/handoff.md` line under Docs and its bullet under Workflow. Their docs check names the records to
    trim under 400 words. One earlier re-copy went unreviewed (OpenRouter rejected that repo's key): review that
    commit with `--base` once its key works.
-2. Narrow the pre-tool refusal of a piped peer review (ADR 0010, `reviewPiped` in `handoff-hook.mjs`), found by a
-   session after a re-copy: it reads everything after the run as the run's own, so `node …peer-review.mjs && echo
-   done > f`, `; ls | wc -l` and `--focus "$(git log | head -5)"` are refused with the wrong advice to run it again
-   without the pipe. Stop at the run's own command (`;`, `&&`, `||`, newline). Also missed: a run inside `bash -c
-   "… | tail"`. Add compound and `$( )` cases to the tests.
+2. Make peer review survive slow and dropped providers (`peer-review.mjs`, ADR 0003). On the diff for ADR 0010's
+   scanner, MiMo reasoned past 65k tokens at about 36 a second and hit the 30-minute cap four times, and three runs
+   came back empty: the provider ended the stream with no finish reason or usage, which `readStream` takes as a
+   whole reply. Print the provider on a timeout; route by throughput (OpenRouter's `provider.sort`); treat a stream
+   with no finish reason as dropped and retry it skipping that provider. `z-ai/glm-5.3` reviewed the same diff in
+   8-11 minutes for $0.24-0.39.
 3. Stop session-start loading its files twice on a resume: the restored transcript already holds the first load
    (about 1,700 tokens with no change in progress, 2–4k with notes). Skip it on `source: resume`, or print one line
    pointing back, as the re-copy notice already skips resume (ADR 0007, `handoff-hook.mjs`).

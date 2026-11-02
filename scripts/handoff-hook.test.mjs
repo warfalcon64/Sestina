@@ -240,7 +240,20 @@ describe('reviewPiped', () => {
       'X=$(env FOO=1 node scripts/peer-review.mjs)',
       'diff <(node scripts/peer-review.mjs) /dev/null',
       'node scripts/peer-review.mjs <<EOF | tail\nfocus on the hook\nEOF',
-      'cat <<EOF\nbody\nEOF\nnode scripts/peer-review.mjs | tail'
+      'cat <<EOF\nbody\nEOF\nnode scripts/peer-review.mjs | tail',
+      '( node scripts/peer-review.mjs ) | tail',
+      '{ node scripts/peer-review.mjs; } > f',
+      '( node scripts/peer-review.mjs; echo done ) | tail',
+      'node scripts/peer-review.mjs \\\n| tail',
+      'node scripts/peer-review.mjs --focus $(echo a) | tail',
+      'node scripts/peer-review.mjs |& tail',
+      'node scripts/peer-review.mjs --focus "the unmatched ( in the scanner" | tail -5',
+      'node scripts/peer-review.mjs --focus "smile :)" | tail -5',
+      "cat <<'PATCH'\n-old \\\nPATCH\nnode scripts/peer-review.mjs | tail -5",
+      'node scripts/peer-review.mjs --focus "f(x)" | tail',
+      '( node scripts/peer-review.mjs ; echo ")" ; echo x ) | tail',
+      'X=$(node scripts/peer-review.mjs --focus "a)")',
+      'X="$(cat "f" && node scripts/peer-review.mjs)"'
     ])
       assert.equal(reviewPiped(command), true, command)
   })
@@ -279,9 +292,54 @@ describe('reviewPiped', () => {
       'cat <<"EOF"\nnode scripts/peer-review.mjs > f\nEOF',
       'cat <<-EOF\n\tnode scripts/peer-review.mjs > f\n\tEOF',
       "cat <<'EOF'\nnode scripts/peer-review.mjs | tail\nnever closed",
+      'node scripts/peer-review.mjs && echo done > f',
+      'node scripts/peer-review.mjs && git status | head',
+      'node scripts/peer-review.mjs || echo failed > log',
+      'node scripts/peer-review.mjs; ls | wc -l',
+      'node scripts/peer-review.mjs\nls | head',
+      'node scripts/peer-review.mjs & wait; ls | head',
+      'node scripts/peer-review.mjs --focus "$(git log | head -5)"',
+      'node scripts/peer-review.mjs --focus $(git log | head -5)',
+      '( node scripts/peer-review.mjs ) &',
+      'node scripts/peer-review.mjs --focus "$(date) > today"',
+      'node scripts/peer-review.mjs --focus "("',
+      'node scripts/peer-review.mjs --focus "(" ; echo ")" | tail',
+      'echo "(" ; node scripts/peer-review.mjs ; ls ")" | head',
       undefined
     ])
       assert.equal(reviewPiped(command), false, command)
+  })
+
+  it('misses a keyword compound piped as a whole, as documented', () => {
+    assert.equal(reviewPiped('if true; then node scripts/peer-review.mjs; fi | tail'), false)
+  })
+
+  it('misses a function piped where it is called, as documented', () => {
+    assert.equal(reviewPiped('f() { node scripts/peer-review.mjs; }; f | tail'), false)
+  })
+
+  it('drops a comment, so a | in it is not a pipe', () => {
+    assert.equal(reviewPiped('node scripts/peer-review.mjs --key-file .env # no | tail this time'), false)
+    assert.equal(reviewPiped('node scripts/peer-review.mjs # note\nls | head'), false)
+    assert.equal(reviewPiped('echo $# ; node scripts/peer-review.mjs | tail'), true)
+  })
+
+  it('misses an exec redirect before the run, as documented', () => {
+    assert.equal(reviewPiped('exec > /tmp/out 2>&1; node scripts/peer-review.mjs'), false)
+  })
+
+  it('misses a run inside bash -c, as documented', () => {
+    assert.equal(reviewPiped('bash -c "node scripts/peer-review.mjs | tail"'), false)
+  })
+
+  it('reads a } after an argument as text, not a group closing', () => {
+    assert.equal(reviewPiped('{ node scripts/peer-review.mjs; echo }; } | tail'), true)
+    assert.equal(reviewPiped('( node scripts/peer-review.mjs; echo }; ls ) | tail'), true)
+  })
+
+  it('closes a group at a } straight after a compound', () => {
+    assert.equal(reviewPiped('{ if node scripts/peer-review.mjs; then echo ok; fi } | tail'), true)
+    assert.equal(reviewPiped('{ while node scripts/peer-review.mjs; do sleep 1; done } > f'), true)
   })
 })
 

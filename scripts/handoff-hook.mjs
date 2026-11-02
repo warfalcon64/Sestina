@@ -130,13 +130,52 @@ export function preToolOutput(reason) {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }
 }
 
+/** A character of quoted or escaped text as a word character: anything a shell could read as structure becomes `_`. */
+const asData = (char) => (/[A-Za-z0-9_./=:@+,%~-]/.test(char) ? char : '_')
+
 /**
- * A quoted string's text as one word: anything a shell could read as an operator or a space becomes `_`, but
- * parentheses stay, so text split across quotes keeps a capture balanced. A
- * double-quoted command substitution keeps its text, so the run inside it can be read.
+ * The command's structure: quotes dropped, quoted and escaped text turned to word characters (`asData`), so a quoted
+ * string reads as one word, and only the shell's own operators, parentheses and backticks survive. It keeps a stack
+ * of contexts: a command (the top level, or inside `$(…)` or backticks, each counting its own plain parentheses), a
+ * single quote or a double quote. A `$(` or backtick opens a command even inside double quotes, so a run there is
+ * read and its capture balances whatever quotes it holds. Best effort: an unclosed quote runs to the end.
  */
-const asWord = (quoted) =>
-  quoted.startsWith('"') && /\$\(|`/.test(quoted) ? quoted.slice(1, -1) : quoted.slice(1, -1).replace(/[^A-Za-z0-9_./=:@+,%~$()-]/g, '_')
+function structure(command) {
+  const stack = [{ kind: 'command', closer: null, depth: 0 }]
+  let out = ''
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]
+    const top = stack[stack.length - 1]
+    if (top.kind === 'single') {
+      if (char === "'") stack.pop()
+      else out += asData(char)
+    } else if (char === '\\' && i + 1 < command.length) {
+      out += '_' + asData(command[++i])
+    } else if (char === '$' && command[i + 1] === '(') {
+      out += '$('
+      i++
+      stack.push({ kind: 'command', closer: ')', depth: 0 })
+    } else if (char === '`') {
+      out += char
+      if (top.closer === '`') stack.pop()
+      else stack.push({ kind: 'command', closer: '`', depth: 0 })
+    } else if (top.kind === 'double') {
+      if (char === '"') stack.pop()
+      else out += asData(char)
+    } else if (char === "'" || char === '"') {
+      stack.push({ kind: char === "'" ? 'single' : 'double' })
+    } else if (char === '#' && (out === '' || /[\s;&|(]/.test(out[out.length - 1]))) {
+      // A comment runs to the end of its line and is dropped; a `#` inside a word, as in `$#`, is not one.
+      while (i + 1 < command.length && command[i + 1] !== '\n') i++
+    } else {
+      out += char
+      if (char === '(') top.depth++
+      else if (char === ')' && top.depth > 0) top.depth--
+      else if (char === ')' && top.closer === ')') stack.pop()
+    }
+  }
+  return out
+}
 
 /** `node` running a path ending peer-review.mjs, with the options and arguments between them. */
 const REVIEW_RUN = /(?:^|[\s;&|(/`])node((?:\s+[^\s|&;<>()`]+)*?)\s+[^\s|&;<>()`]*peer-review\.mjs(?=$|[\s|&;<>()`])/g
@@ -179,27 +218,120 @@ function captureOpen(before) {
 }
 
 /**
+ * Whether the `brace` (`{` or `}`) at `i` stands as a word, so it opens or closes a group, not `${x}` or text. A `}`
+ * closes only where a command could end, after `;`, `&`, a newline or a compound's `fi`, `done` or `esac`, so the `}`
+ * of `echo }` stays an argument.
+ */
+function braceWord(text, i, brace) {
+  if (text[i] !== brace) return false
+  const prev = i === 0 ? ' ' : text[i - 1]
+  const next = i + 1 === text.length ? ' ' : text[i + 1]
+  if (brace === '{') return /[\s;&|(]/.test(prev) && /\s/.test(next)
+  return /(?:^|[;&\n]|(?:^|\s)(?:fi|done|esac))[ \t]*$/.test(text.slice(0, i)) && /[\s;&|)<>]/.test(next)
+}
+
+/**
+ * How many groups `before` leaves open: a plain `(` or a `{` word, less each `)` or `}` word. Captures open and
+ * close here too, but by the time this is asked none is left open, since `captureOpen` is checked first.
+ */
+function groupsOpen(before) {
+  let open = 0
+  for (let i = 0; i < before.length; i++) {
+    if (before[i] === '(' || braceWord(before, i, '{')) open++
+    else if ((before[i] === ')' || braceWord(before, i, '}')) && open > 0) open--
+  }
+  return open
+}
+
+/**
+ * The index of what closes the span opened at `i` (a backtick, `(` or `{` word), counting the spans nested in it,
+ * or the text's length when it never closes.
+ */
+function spanEnd(text, i) {
+  if (text[i] === '`') {
+    const end = text.indexOf('`', i + 1)
+    return end < 0 ? text.length : end
+  }
+  let depth = 0
+  for (let j = i; j < text.length; j++) {
+    if (text[j] === '`') j = spanEnd(text, j)
+    else if (text[j] === '(' || braceWord(text, j, '{')) depth++
+    else if ((text[j] === ')' || braceWord(text, j, '}')) && --depth === 0) return j
+  }
+  return text.length
+}
+
+/**
+ * The length of the list operator at `i` (`;`, `&&`, `||`, a lone `&` or a newline), or 0 when there is none: the
+ * `&` of `&>`, `>&`, `2>&1` and `|&` is part of a redirect or pipe, and a lone `|` is a pipe.
+ */
+function listOperator(text, i) {
+  const pair = text.slice(i, i + 2)
+  if (pair === '&&' || pair === '||') return 2
+  if (text[i] === ';' || text[i] === '\n') return 1
+  return text[i] === '&' && !/[>|]/.test(text[i - 1] ?? '') && text[i + 1] !== '>' ? 1 : 0
+}
+
+/** Whether a segment sends stdout on: a `|` (not `||`; `|&` counts) or `>` once stream copies and stderr redirects go. */
+function segmentPiped(segment) {
+  const stdout = segment
+    .replace(/(?<![^\s;&|(])\d*>&\d-?/g, ' ') // 2>&1, >&2: a copy between streams, stdout stays where it was
+    .replace(/(?<![^\s;&|(])[2-9]>>?/g, ' ') // 2> err: stderr only
+  return /(?<!\|)\|(?!\|)|>/.test(stdout)
+}
+
+/**
+ * Whether what the run's stdout reaches, `rest` being the text after it and `open` the groups around it, is piped or
+ * redirected. The run's segment runs to its list operator; spans opened after it (`$(…)`, `(…)`, `{ … }`, backticks)
+ * are skipped; one that never closes, or a `)` or `}` with no group to close, is read as data. A `)` or `}` closing an
+ * enclosing group carries on with the group's own segment; a list operator inside an open group skips to that group's
+ * close first. It stops when a segment ends with no group left open.
+ */
+function stdoutPiped(rest, open) {
+  let segment = ''
+  let skipping = false
+  for (let i = 0; i < rest.length; i++) {
+    const length = listOperator(rest, i)
+    if (length) {
+      if (!skipping && segmentPiped(segment)) return true
+      if (open === 0) return false
+      skipping = true
+      segment = ''
+      i += length - 1
+    } else if ((rest[i] === ')' || braceWord(rest, i, '}')) && open > 0) {
+      open--
+      if (skipping) segment = ''
+      skipping = false
+    } else if ((rest[i] === '`' || rest[i] === '(' || braceWord(rest, i, '{')) && spanEnd(rest, i) < rest.length) {
+      i = spanEnd(rest, i)
+      segment += ' '
+    } else segment += rest[i]
+  }
+  return !skipping && segmentPiped(segment)
+}
+
+/**
  * Whether a shell command runs peer-review.mjs with its output piped, sent to a file or captured: the run inside a
- * capture still open (`$(…)`, `<(…)`, `>(…)` or backticks), or after the run a lone `|` or a stdout redirect (`>`,
- * `>>`, `1>`, `&>`, `>|`); `2>`, `2>&1` and `>&2` leave stdout alone. Heredoc bodies are skipped. Quoted strings are
- * read as plain words (a double-quoted substitution as its text), and text before the run counts only for the
- * captures it leaves open. A run given --help, -h or --dry-run is short and passes. Best effort: it reads the shell's
- * text, not its grammar.
+ * capture still open (`$(…)`, `<(…)`, `>(…)` or backticks), or in what its stdout reaches a lone `|` or a stdout
+ * redirect (`>`, `>>`, `1>`, `&>`, `>|`); `2>`, `2>&1` and `>&2` leave stdout alone. Its stdout reaches up to its
+ * own list operator (`;`, `&&`, `||`, `&`, a newline), and past the close of an enclosing `( )` or `{ }` to that
+ * group's own; an `if`, `while`, `until` or `for` around it is not followed. Heredoc bodies are skipped, then line
+ * continuations read as a space. Quoted strings are read as plain words, a substitution in one as its text (`structure`), and
+ * text before the run counts only for the captures and groups it leaves open. A run given --help, -h or --dry-run is
+ * short and passes. Best effort: it reads the shell's text, not its grammar.
  */
 export function reviewPiped(command) {
   if (typeof command !== 'string') return false
-  const text = withoutHeredocs(command).replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, asWord)
+  const text = structure(withoutHeredocs(command).replace(/\\\n/g, ' '))
   for (const match of text.matchAll(REVIEW_RUN)) {
     const rest = text.slice(match.index + match[0].length)
     // The run's own arguments: up to the first operator that is not part of a redirect.
     const own = rest.match(/^(?:[^|;&()`\n]|(?<=>)&|&(?=>))*/)[0]
     const words = [...match[1].split(/\s+/), ...own.split(/\s+/)]
     if (words.some((word) => SHORT_RUN.has(word))) continue
-    if (captureOpen(text.slice(0, match.index + match[0].indexOf('node')))) return true
-    const stdout = rest
-      .replace(/(?<![^\s;&|(])\d*>&\d-?/g, ' ') // 2>&1, >&2: a copy between streams, stdout stays where it was
-      .replace(/(?<![^\s;&|(])[2-9]>>?/g, ' ') // 2> err: stderr only
-    if (/(?<!\|)\|(?!\|)|>/.test(stdout)) return true
+    const before = text.slice(0, match.index + match[0].indexOf('node'))
+    if (captureOpen(before)) return true
+    if (stdoutPiped(rest, groupsOpen(before))) return true
   }
   return false
 }
