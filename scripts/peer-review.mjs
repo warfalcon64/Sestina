@@ -14,7 +14,8 @@
  * The reply is streamed, so a reviewer that thinks for many minutes never leaves the connection idle (an idle request
  * gets dropped on the way), and a progress line prints every minute while it works. A failure the owner must fix (no
  * key, a rejected key, no credits, a refusal) exits 2 at once; a stall, an error partway or a transient status is
- * tried up to twice more, skipping the provider that failed.
+ * tried up to twice more, skipping the provider that failed. A stream that ends with no finish reason counts as
+ * dropped. Requests route to the fastest provider first.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -428,7 +429,7 @@ export function classifyFailure(err) {
     const cause = err?.cause?.message ? ` (${err.cause.message})` : ''
     return { kind: 'retry', message: `${err instanceof Error ? err.message : String(err)}${cause}` }
   }
-  if (err.timedOut) return { kind: 'fatal', message: err.message }
+  if (err.timedOut) return { kind: 'fatal', message: `${err.message}${err.provider ? ` (via ${err.provider})` : ''}` }
   // An error sent after 200 OK is a provider failing partway, whatever its code: a real key or credit problem comes back
   // as an HTTP status on the next attempt.
   if (err.stalled || err.inStream) return { kind: 'retry', message: err.message }
@@ -517,7 +518,10 @@ export async function readStream(res, abort, idleMs = IDLE_MS) {
   return { model: reply.model, provider: reply.provider, usage: reply.usage, choices: [choice] }
 }
 
-/** The request OpenRouter is sent: a streamed JSON reply, its usage, how hard to think, and providers to skip. */
+/**
+ * The request OpenRouter is sent: a streamed JSON reply, its usage, how hard to think, routing by throughput, and
+ * providers to skip.
+ */
 export function requestBody({ model, prompt, effort = DEFAULT_EFFORT, ignore = [] }) {
   const body = {
     model,
@@ -530,7 +534,8 @@ export function requestBody({ model, prompt, effort = DEFAULT_EFFORT, ignore = [
     stream: true,
     usage: { include: true }
   }
-  if (ignore.length) body.provider = { ignore }
+  body.provider = { sort: 'throughput' }
+  if (ignore.length) body.provider.ignore = ignore
   return body
 }
 
@@ -571,14 +576,14 @@ async function statusError(res) {
  * Up to MAX_ATTEMPTS calls. A failure the owner must fix, or one another attempt cannot fix, throws at once with its
  * `kind`; any other retries, skipping the provider that failed when it is known.
  */
-export async function callModel({ key, model, prompt, effort, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), idleMs = IDLE_MS }) {
+export async function callModel({ key, model, prompt, effort, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), idleMs = IDLE_MS, timeoutMs = TIMEOUT_MS }) {
   const ignore = []
   let last
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const body = JSON.stringify(requestBody({ model, prompt, effort, ignore }))
     const controller = new AbortController()
     const abort = (reason) => controller.abort(reason)
-    const overall = setTimeout(() => abort(new CallError(`no complete reply in ${TIMEOUT_MS / 60000} minutes`, { timedOut: true })), TIMEOUT_MS)
+    const overall = setTimeout(() => abort(new CallError(`no complete reply in ${timeoutMs / 60000} minutes`, { timedOut: true })), timeoutMs)
     // Until the stream starts, readStream's watchdog is not running: a hang here is a stall too.
     const waiting = setTimeout(() => abort(new CallError(`no response from OpenRouter for ${idleMs / 60000} minutes`, { stalled: true })), idleMs)
     let failure
@@ -591,7 +596,10 @@ export async function callModel({ key, model, prompt, effort, fetchImpl = fetch,
       })
       if (res.ok) {
         clearTimeout(waiting)
-        return await readStream(res, abort, idleMs)
+        const reply = await readStream(res, abort, idleMs)
+        // A provider that closes the stream without its last chunk leaves no finish reason: the reply may be cut short.
+        if (!reply.choices[0].finish_reason) throw new CallError('the stream ended without a finish reason', { inStream: true, provider: reply.provider })
+        return reply
       }
       failure = await statusError(res)
       // statusError reads the body quietly, so a timeout that cut it short shows only here.

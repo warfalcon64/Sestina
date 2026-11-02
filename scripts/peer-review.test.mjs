@@ -396,13 +396,15 @@ describe('failures', () => {
       [new CallError('OpenRouter: died', { status: null }), 'retry'],
       [new CallError('OpenRouter: upstream auth failed', { status: 401, inStream: true }), 'retry'],
       [new TypeError('fetch failed'), 'retry'],
-      [new CallError('no complete reply in 30 minutes', { timedOut: true }), 'fatal']
+      [new CallError('no complete reply in 30 minutes', { timedOut: true }), 'fatal'],
+      [new CallError('no complete reply in 30 minutes', { timedOut: true, provider: 'Xiaomi' }), 'fatal', /via Xiaomi/]
     ]
     for (const [err, kind, message] of cases) {
       const got = classifyFailure(err)
       assert.equal(got.kind, kind, err.message)
       if (message) assert.match(got.message, message)
     }
+    assert.doesNotMatch(classifyFailure(new CallError('no complete reply in 30 minutes', { timedOut: true })).message, /via/)
   })
 
   it('keeps the last provider seen and names it in a mid-stream error', () => {
@@ -450,15 +452,21 @@ describe('failures', () => {
     assert.equal(exitCode(new Error('x')), 1)
   })
 
-  it('asks to skip providers only when there are some', () => {
-    assert.equal('provider' in requestBody({ model: 'x/y', prompt: 'p' }), false)
-    assert.equal('provider' in requestBody({ model: 'x/y', prompt: 'p', ignore: [] }), false)
-    assert.deepEqual(requestBody({ model: 'x/y', prompt: 'p', ignore: ['Xiaomi'] }).provider, { ignore: ['Xiaomi'] })
+  it('routes by throughput, and asks to skip providers only when there are some', () => {
+    assert.deepEqual(requestBody({ model: 'x/y', prompt: 'p' }).provider, { sort: 'throughput' })
+    assert.deepEqual(requestBody({ model: 'x/y', prompt: 'p', ignore: [] }).provider, { sort: 'throughput' })
+    assert.deepEqual(requestBody({ model: 'x/y', prompt: 'p', ignore: ['Xiaomi'] }).provider, { sort: 'throughput', ignore: ['Xiaomi'] })
   })
 })
 
 describe('callModel', () => {
-  const ok = () => new Response(`data: ${JSON.stringify({ model: 'm', choices: [{ delta: { content: '{}' } }] })}\n\ndata: [DONE]\n\n`, { status: 200 })
+  const ok = () =>
+    new Response(
+      `data: ${JSON.stringify({ model: 'm', choices: [{ delta: { content: '{}' } }] })}\n\n` +
+        `data: ${JSON.stringify({ choices: [{ delta: { content: '' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+      { status: 200 }
+    )
+  const unfinished = () => new Response(`data: ${JSON.stringify({ provider: 'Xiaomi', choices: [{ delta: { content: '{}' } }] })}\n\ndata: [DONE]\n\n`, { status: 200 })
   const fail = (status, headers = {}) => new Response(JSON.stringify({ error: { message: `status ${status}` } }), { status, headers })
 
   /** Runs callModel against these responses (or functions making them), recording each request body and wait. */
@@ -510,8 +518,8 @@ describe('callModel', () => {
     })
     const { result, bodies, waits } = await run(stalled, ok())
     assert.ok(result)
-    assert.equal('provider' in bodies[0], false)
-    assert.deepEqual(bodies[1].provider, { ignore: ['DeepInfra'] })
+    assert.equal('ignore' in bodies[0].provider, false)
+    assert.deepEqual(bodies[1].provider, { sort: 'throughput', ignore: ['DeepInfra'] })
     assert.deepEqual(waits, [5000])
   })
 
@@ -526,7 +534,7 @@ describe('callModel', () => {
     })
     const { result, bodies } = await runWith({ idleMs: 20 }, stalled, ok())
     assert.ok(result)
-    assert.deepEqual(bodies[1].provider, { ignore: ['Novita'] })
+    assert.deepEqual(bodies[1].provider, { sort: 'throughput', ignore: ['Novita'] })
   })
 
   it('skips a provider whose connection dropped partway', async () => {
@@ -540,7 +548,36 @@ describe('callModel', () => {
     })
     const { result, bodies } = await run(dropped, ok())
     assert.ok(result)
-    assert.deepEqual(bodies[1].provider, { ignore: ['Xiaomi'] })
+    assert.deepEqual(bodies[1].provider, { sort: 'throughput', ignore: ['Xiaomi'] })
+  })
+
+  it('retries a stream that ends without a finish reason, skipping its provider', async () => {
+    const { result, bodies, waits } = await run(unfinished(), ok())
+    assert.ok(result)
+    assert.deepEqual(bodies[1].provider, { sort: 'throughput', ignore: ['Xiaomi'] })
+    assert.deepEqual(waits, [5000])
+  })
+
+  it('gives up after three streams without a finish reason', async () => {
+    const { error, bodies } = await run(unfinished(), unfinished(), unfinished())
+    assert.match(error.message, /without a finish reason/)
+    assert.notEqual(error.kind, 'owner')
+    assert.equal(bodies.length, 3)
+  })
+
+  it('names the provider that was streaming when the call timed out, and does not retry', async () => {
+    const slow = (init) => ({
+      ok: true,
+      status: 200,
+      body: (async function* () {
+        yield new TextEncoder().encode(`data: ${JSON.stringify({ provider: 'Xiaomi', choices: [{ delta: { reasoning: 'hmm' } }] })}\n\n`)
+        await new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+      })()
+    })
+    const { error, bodies } = await runWith({ timeoutMs: 20 }, slow)
+    assert.equal(error.kind, 'fatal')
+    assert.match(error.message, /no complete reply in .* minutes \(via Xiaomi\)/)
+    assert.equal(bodies.length, 1)
   })
 
   it('retries a call that hangs before any response', async () => {
@@ -586,8 +623,8 @@ describe('callModel', () => {
     const allIgnored = new Response(JSON.stringify({ error: { code: 404, message: 'All providers have been ignored.', metadata: { failed_routing_step: 'Filter by Ignored Providers' } } }), { status: 404 })
     const { result, bodies } = await run(stalled, allIgnored, ok())
     assert.ok(result)
-    assert.deepEqual(bodies[1].provider, { ignore: ['Solo'] })
-    assert.equal('provider' in bodies[2], false)
+    assert.deepEqual(bodies[1].provider, { sort: 'throughput', ignore: ['Solo'] })
+    assert.equal('ignore' in bodies[2].provider, false)
   })
 
   it('gives up after three failures', async () => {
